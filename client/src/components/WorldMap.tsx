@@ -53,14 +53,14 @@ export function WorldMap({
             const fill =
               val > 0
                 ? color(val / max)
-                : "hsl(var(--muted))";
+                : "hsl(var(--secondary))";
             return (
               <Geography
                 key={geo.rsmKey}
                 geography={geo}
                 fill={fill}
-                stroke="hsl(var(--background))"
-                strokeWidth={0.4}
+                stroke="hsl(var(--card))"
+                strokeWidth={0.5}
                 style={{
                   default: { outline: "none" },
                   hover: { outline: "none", fill: "hsl(var(--chart-1))", cursor: "pointer" },

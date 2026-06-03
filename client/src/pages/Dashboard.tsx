@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import {
   Activity, Globe2, Newspaper, Languages, Moon, Sun, RefreshCw,
   TrendingUp, Smile, MapPin, ExternalLink, AlertTriangle, Leaf,
+  ArrowUpRight, ArrowDownRight, Minus,
 } from "lucide-react";
 import { useTheme } from "@/components/ThemeProvider";
 import {
@@ -17,19 +18,25 @@ function avg(data: TimelinePoint[]) {
   return data.reduce((s, d) => s + d.value, 0) / data.length;
 }
 
-function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+function Panel({
+  icon: Icon, title, sub, className = "", children,
+}: {
+  icon: any; title: string; sub?: string; className?: string; children: React.ReactNode;
+}) {
   return (
-    <div className={`rounded-xl border border-card-border bg-card ${className}`}>{children}</div>
-  );
-}
-
-function PanelHead({ icon: Icon, title, sub }: { icon: any; title: string; sub?: string }) {
-  return (
-    <div className="flex items-center gap-2 px-5 pt-4 pb-3 border-b border-border">
-      <Icon className="size-4 text-primary" />
-      <h2 className="text-sm font-semibold">{title}</h2>
-      {sub && <span className="ml-auto text-xs text-muted-foreground tabular-nums">{sub}</span>}
-    </div>
+    <section className={`panel flex flex-col overflow-hidden ${className}`}>
+      <div className="flex items-center gap-2.5 px-5 pt-4 pb-3">
+        <span className="grid size-7 place-items-center rounded-lg bg-primary/10 text-primary">
+          <Icon className="size-4" />
+        </span>
+        <h2 className="text-sm font-semibold tracking-tight">{title}</h2>
+        {sub && (
+          <span className="ml-auto text-xs font-medium text-muted-foreground num">{sub}</span>
+        )}
+      </div>
+      <div className="h-px bg-card-border" />
+      {children}
+    </section>
   );
 }
 
@@ -47,25 +54,26 @@ export default function Dashboard() {
   const toneData = tone.data?.timeline?.[0]?.data ?? [];
   const arts: Article[] = articles.data?.articles ?? [];
 
-  // 国家维度：取每个 series 在时间窗内的均值
   const countrySeries = country.data?.timeline ?? [];
   const countryAgg = useMemo(() => {
-    const out = countrySeries
+    return countrySeries
       .map((s) => ({ country: s.series, value: avg(s.data) }))
       .filter((d) => d.value > 0)
       .sort((a, b) => b.value - a.value);
-    return out;
   }, [countrySeries]);
   const countryMap = useMemo(
     () => Object.fromEntries(countryAgg.map((d) => [d.country, d.value])),
     [countryAgg],
   );
 
-  // KPI
+  // KPI values + simple trend deltas
   const latestVol = volData.at(-1)?.value ?? 0;
+  const prevVol = volData.at(-2)?.value ?? latestVol;
+  const volDelta = latestVol - prevVol;
   const avgTone = avg(toneData);
   const topCountry = countryAgg[0]?.country ?? "—";
   const langCount = new Set(arts.map((a) => a.language)).size;
+  const activeTopic = TOPICS.find((t) => t.key === topic);
 
   const loadingAny = volume.isLoading || tone.isLoading || articles.isLoading;
   const isRate = (e: unknown) =>
@@ -79,22 +87,24 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="relative min-h-screen text-foreground">
+      <div className="app-ambient" aria-hidden />
+
       {/* Header */}
-      <header className="sticky top-0 z-20 border-b border-border bg-background/85 backdrop-blur-md">
+      <header className="sticky top-0 z-20 border-b border-border bg-background/70 backdrop-blur-xl">
         <div className="mx-auto max-w-[1400px] px-4 sm:px-6 h-16 flex items-center gap-3">
-          <div className="flex items-center gap-2.5">
-            <div className="grid size-9 place-items-center rounded-lg bg-primary text-primary-foreground">
+          <div className="flex items-center gap-3">
+            <div className="grid size-10 place-items-center rounded-xl bg-gradient-to-br from-primary to-chart-3 text-primary-foreground shadow-sm">
               <Leaf className="size-5" />
             </div>
             <div className="leading-tight">
-              <h1 className="text-base font-bold tracking-tight">气候新闻实时观测</h1>
+              <h1 className="font-display text-[1.05rem] font-bold tracking-tight">气候新闻实时观测</h1>
               <p className="text-xs text-muted-foreground">GDELT Climate News Monitor</p>
             </div>
           </div>
 
           <div className="ml-auto flex items-center gap-2">
-            <span className="hidden sm:flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/8 px-3 py-1.5 text-xs font-medium text-primary">
               <span className="relative flex size-2">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-60" />
                 <span className="relative inline-flex size-2 rounded-full bg-primary" />
@@ -104,7 +114,7 @@ export default function Dashboard() {
             <button
               onClick={refetchAll}
               data-testid="button-refresh"
-              className="grid size-9 place-items-center rounded-lg border border-border hover:bg-muted"
+              className="grid size-9 place-items-center rounded-lg border border-border bg-card hover-elevate"
               aria-label="刷新数据"
             >
               <RefreshCw className={`size-4 ${loadingAny ? "animate-spin" : ""}`} />
@@ -112,7 +122,7 @@ export default function Dashboard() {
             <button
               onClick={toggle}
               data-testid="button-theme"
-              className="grid size-9 place-items-center rounded-lg border border-border hover:bg-muted"
+              className="grid size-9 place-items-center rounded-lg border border-border bg-card hover-elevate"
               aria-label="切换深浅色"
             >
               {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
@@ -121,34 +131,34 @@ export default function Dashboard() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-[1400px] px-4 sm:px-6 py-5 space-y-5">
+      <main className="mx-auto max-w-[1400px] px-4 sm:px-6 py-6 space-y-5">
         {/* Filters */}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-3">
           <div className="flex flex-wrap gap-1.5">
             {TOPICS.map((t) => (
               <button
                 key={t.key}
                 onClick={() => setTopic(t.key)}
                 data-testid={`topic-${t.key}`}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                className={`rounded-full px-3.5 py-1.5 text-sm font-medium border transition-all ${
                   topic === t.key
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "border-border bg-card hover:bg-muted text-foreground"
+                    ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                    : "border-border bg-card text-muted-foreground hover-elevate hover:text-foreground"
                 }`}
               >
                 {t.label}
               </button>
             ))}
           </div>
-          <div className="ml-auto flex gap-1 rounded-lg border border-border bg-card p-1">
+          <div className="ml-auto flex gap-0.5 rounded-full border border-border bg-card p-1">
             {TIMESPANS.map((t) => (
               <button
                 key={t.value}
                 onClick={() => setTimespan(t.value)}
                 data-testid={`timespan-${t.value}`}
-                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                className={`rounded-full px-3 py-1 text-xs font-medium transition-all ${
                   timespan === t.value
-                    ? "bg-secondary text-secondary-foreground"
+                    ? "bg-secondary text-secondary-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
@@ -159,74 +169,84 @@ export default function Dashboard() {
         </div>
 
         {rateLimited && (
-          <div className="flex items-center gap-2 rounded-lg border border-chart-4/40 bg-chart-4/10 px-4 py-2.5 text-sm">
-            <AlertTriangle className="size-4 text-chart-4" />
-            GDELT 接口短暂限流，系统正在自动重试，数据稍后刷新。
+          <div className="flex items-center gap-2 rounded-xl border border-chart-4/40 bg-chart-4/10 px-4 py-2.5 text-sm">
+            <AlertTriangle className="size-4 shrink-0 text-chart-4" />
+            GDELT 接口短暂限流，系统正在自动重试，数据将在入库后自动刷新。
           </div>
         )}
 
         {/* KPI row */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <Kpi icon={TrendingUp} label="当前报道强度" value={`${latestVol.toFixed(2)}%`} hint="占全球新闻比例" tone="primary" />
           <Kpi
-            icon={Smile}
-            label="平均情感倾向"
-            value={avgTone.toFixed(2)}
-            hint={avgTone >= 0 ? "整体偏正面" : "整体偏负面"}
-            tone={avgTone >= 0 ? "good" : "warn"}
+            icon={TrendingUp} label="当前报道强度" value={`${latestVol.toFixed(2)}%`}
+            hint="占全球新闻比例" accent="chart-1" delta={volDelta}
           />
-          <Kpi icon={Globe2} label="报道最多地区" value={topCountry} hint="按来源国家" tone="primary" />
-          <Kpi icon={Languages} label="覆盖语言数" value={String(langCount)} hint="最新文章样本" tone="primary" />
+          <Kpi
+            icon={Smile} label="平均情感倾向" value={avgTone.toFixed(2)}
+            hint={avgTone >= 0 ? "整体偏正面" : "整体偏负面"}
+            accent={avgTone >= 0 ? "chart-3" : "chart-5"}
+          />
+          <Kpi
+            icon={Globe2} label="报道最多地区" value={topCountry}
+            hint="按来源国家" accent="chart-2"
+          />
+          <Kpi
+            icon={Languages} label="覆盖语言数" value={String(langCount)}
+            hint="最新文章样本" accent="chart-6"
+          />
         </div>
 
-        {/* Charts grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-          <Card className="lg:col-span-2">
-            <PanelHead icon={Activity} title="报道量趋势" sub="% of global coverage" />
+        {/* Trend charts */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <Panel icon={Activity} title="报道量趋势" sub="% of global coverage" className="lg:col-span-2">
             <div className="h-64 p-4">
-              {volume.isLoading ? <ChartSkeleton /> : <VolumeChart data={volData} />}
+              {volume.isLoading ? <ChartSkeleton /> :
+                volData.length === 0 ? <EmptyChart label="暂无趋势数据" /> :
+                <VolumeChart data={volData} />}
             </div>
-          </Card>
-          <Card>
-            <PanelHead icon={Smile} title="情感趋势" sub="avg tone" />
+          </Panel>
+          <Panel icon={Smile} title="情感趋势" sub="avg tone">
             <div className="h-64 p-4">
-              {tone.isLoading ? <ChartSkeleton /> : <ToneChart data={toneData} />}
+              {tone.isLoading ? <ChartSkeleton /> :
+                toneData.length === 0 ? <EmptyChart label="暂无情感数据" /> :
+                <ToneChart data={toneData} />}
             </div>
-          </Card>
+          </Panel>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-          <Card className="lg:col-span-2">
-            <PanelHead icon={MapPin} title="全球报道热力图" sub="按来源国家" />
+        {/* Map + ranking */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <Panel icon={MapPin} title="全球报道热力图" sub="按来源国家" className="lg:col-span-2">
             <div className="h-[360px] p-2">
-              {country.isLoading ? (
-                <ChartSkeleton />
-              ) : (
-                <WorldMap byCountry={countryMap} />
-              )}
+              {country.isLoading ? <ChartSkeleton /> : <WorldMap byCountry={countryMap} />}
             </div>
-          </Card>
-          <Card>
-            <PanelHead icon={Globe2} title="国家 / 地区排行" sub="Top 12" />
+          </Panel>
+          <Panel icon={Globe2} title="国家 / 地区排行" sub="Top 12">
             <div className="h-[360px] p-3">
-              {country.isLoading ? <ChartSkeleton /> : <CountryBar data={countryAgg.slice(0, 12)} />}
+              {country.isLoading ? <ChartSkeleton /> :
+                countryAgg.length === 0 ? <EmptyChart label="暂无地区数据" /> :
+                <CountryBar data={countryAgg.slice(0, 12)} />}
             </div>
-          </Card>
+          </Panel>
         </div>
 
         {/* Article feed */}
-        <Card>
-          <PanelHead icon={Newspaper} title="最新报道流" sub={`${arts.length} 篇 · 实时`} />
-          <div className="p-3">
+        <Panel icon={Newspaper} title="最新报道流" sub={`${arts.length} 篇 · 实时`}>
+          <div className="p-4">
             {articles.isLoading ? (
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {Array.from({ length: 6 }).map((_, i) => (
-                  <Skeleton key={i} className="h-28 rounded-lg" />
+                  <Skeleton key={i} className="h-44 rounded-xl" />
                 ))}
               </div>
             ) : arts.length === 0 ? (
-              <div className="py-16 text-center text-sm text-muted-foreground">
-                当前时间窗内暂无匹配报道，试试放宽时间范围。
+              <div className="flex flex-col items-center gap-2 py-16 text-center">
+                <span className="grid size-12 place-items-center rounded-2xl bg-muted text-muted-foreground">
+                  <Newspaper className="size-6 opacity-50" />
+                </span>
+                <p className="text-sm text-muted-foreground">
+                  当前时间窗内暂无 {activeTopic?.label ?? ""} 报道，数据将在入库后自动出现。
+                </p>
               </div>
             ) : (
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -236,14 +256,14 @@ export default function Dashboard() {
               </div>
             )}
           </div>
-        </Card>
+        </Panel>
 
         <footer className="pt-2 pb-8 text-center text-xs text-muted-foreground">
           数据来源：
-          <a href="https://www.gdeltproject.org/" target="_blank" rel="noreferrer" className="underline hover:text-foreground">
+          <a href="https://www.gdeltproject.org/" target="_blank" rel="noreferrer" className="text-primary underline-offset-2 hover:underline">
             The GDELT Project
           </a>
-          {" · "}DOC 2.0 实时 API（每 15 分钟更新，覆盖最近 3 个月）。原型阶段（方案 B），后端已预留切换到自建数据库（方案 A）的抽象层。
+          {" · "}DOC 2.0 实时 API（每 15 分钟入库 · 覆盖最近 3 个月）· 数据持久化于 Supabase。
         </footer>
       </main>
     </div>
@@ -251,23 +271,39 @@ export default function Dashboard() {
 }
 
 function Kpi({
-  icon: Icon, label, value, hint, tone,
+  icon: Icon, label, value, hint, accent, delta,
 }: {
   icon: any; label: string; value: string; hint: string;
-  tone: "primary" | "good" | "warn";
+  accent: string; delta?: number;
 }) {
-  const toneColor =
-    tone === "good" ? "text-chart-1" : tone === "warn" ? "text-chart-5" : "text-primary";
+  const showDelta = typeof delta === "number" && Math.abs(delta) > 0.0001;
+  const up = (delta ?? 0) > 0;
   return (
-    <div className="rounded-xl border border-card-border bg-card p-4">
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <Icon className={`size-3.5 ${toneColor}`} />
+    <div className="panel relative overflow-hidden p-4">
+      <span
+        className="absolute inset-y-0 left-0 w-1"
+        style={{ background: `hsl(var(--${accent}))` }}
+        aria-hidden
+      />
+      <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+        <span className="grid size-6 place-items-center rounded-md"
+          style={{ background: `hsl(var(--${accent}) / 0.12)`, color: `hsl(var(--${accent}))` }}>
+          <Icon className="size-3.5" />
+        </span>
         {label}
       </div>
-      <div className="mt-2 text-2xl font-bold tabular-nums truncate" data-testid={`kpi-${label}`}>
-        {value}
+      <div className="mt-2.5 flex items-end gap-2">
+        <div className="font-display text-2xl font-bold leading-none num truncate" data-testid={`kpi-${label}`}>
+          {value}
+        </div>
+        {showDelta && (
+          <span className={`mb-0.5 inline-flex items-center gap-0.5 text-xs font-semibold num ${up ? "text-chart-3" : "text-chart-5"}`}>
+            {up ? <ArrowUpRight className="size-3" /> : <ArrowDownRight className="size-3" />}
+            {Math.abs(delta as number).toFixed(2)}
+          </span>
+        )}
       </div>
-      <div className="mt-0.5 text-xs text-muted-foreground">{hint}</div>
+      <div className="mt-1 text-xs text-muted-foreground">{hint}</div>
     </div>
   );
 }
@@ -279,39 +315,51 @@ function ArticleCard({ a }: { a: Article }) {
       target="_blank"
       rel="noreferrer"
       data-testid="card-article"
-      className="group flex flex-col rounded-lg border border-border bg-card-foreground/[0.015] overflow-hidden hover:border-primary/60 transition-colors"
+      className="group flex flex-col overflow-hidden rounded-xl border border-card-border bg-card transition-all hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-md"
     >
       {a.socialimage ? (
-        <div className="h-28 overflow-hidden bg-muted">
+        <div className="relative h-28 overflow-hidden bg-muted">
           <img
             src={a.socialimage}
             alt=""
             loading="lazy"
-            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
             onError={(e) => ((e.target as HTMLImageElement).style.display = "none")}
           />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent" />
         </div>
       ) : (
-        <div className="h-28 grid place-items-center bg-muted text-muted-foreground">
-          <Newspaper className="size-6 opacity-40" />
+        <div className="grid h-28 place-items-center bg-gradient-to-br from-muted to-secondary text-muted-foreground">
+          <Leaf className="size-6 opacity-30" />
         </div>
       )}
-      <div className="flex flex-1 flex-col gap-2 p-3">
-        <p className="text-sm font-medium leading-snug line-clamp-3 group-hover:text-primary">
+      <div className="flex flex-1 flex-col gap-2 p-3.5">
+        <p className="line-clamp-3 text-sm font-medium leading-snug transition-colors group-hover:text-primary">
           {a.title}
         </p>
         <div className="mt-auto flex items-center gap-1.5 text-xs text-muted-foreground">
-          <span className="truncate max-w-[7rem]">{a.domain}</span>
-          <span>·</span>
-          <span className="truncate max-w-[5rem]">{a.sourcecountry}</span>
-          <ExternalLink className="size-3 ml-auto opacity-0 group-hover:opacity-100" />
+          <span className="max-w-[7rem] truncate font-medium">{a.domain}</span>
+          <span className="text-card-border">·</span>
+          <span className="max-w-[5rem] truncate">{a.sourcecountry}</span>
+          <ExternalLink className="ml-auto size-3 opacity-0 transition-opacity group-hover:opacity-100" />
         </div>
-        <div className="text-xs text-muted-foreground tabular-nums">{relTime(a.seendate)}</div>
+        <div className="num text-xs text-muted-foreground">{relTime(a.seendate)}</div>
       </div>
     </a>
   );
 }
 
 function ChartSkeleton() {
-  return <Skeleton className="h-full w-full rounded-lg" />;
+  return <Skeleton className="h-full w-full rounded-xl" />;
+}
+
+function EmptyChart({ label }: { label: string }) {
+  return (
+    <div className="grid h-full place-items-center">
+      <div className="flex flex-col items-center gap-2 text-muted-foreground">
+        <Minus className="size-5 opacity-40" />
+        <span className="text-xs">{label}</span>
+      </div>
+    </div>
+  );
 }

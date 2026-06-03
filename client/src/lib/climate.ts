@@ -105,6 +105,13 @@ export function useCountry(topic: string, timespan: string) {
 
 // ---- 时间工具 ------------------------------------------------------
 export function parseGdeltDate(s: string): Date {
+  if (!s) return new Date(NaN);
+  // 方案 A（Supabase）返回标准 ISO8601 / timestamptz；方案 B（GDELT 直连）返回紧凑格式。
+  // 同时兼容两者：含 "-" 或 ":" 视为 ISO，交给原生解析。
+  if (s.includes("-") || s.includes(":")) {
+    const d = new Date(s);
+    if (!isNaN(d.getTime())) return d;
+  }
   const m = s.replace("T", "").replace("Z", "");
   const y = +m.slice(0, 4),
     mo = +m.slice(4, 6) - 1,

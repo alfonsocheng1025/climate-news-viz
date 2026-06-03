@@ -9,12 +9,12 @@
   --opaque-button-border-intensity: -8;
   --elevate-1: rgba(0, 0, 0, 0.03);
   --elevate-2: rgba(0, 0, 0, 0.08);
-  --background: 0 0% 100%;
-  --foreground: 0 0% 9%;
-  --border: 0 0% 91%;
-  --card: 0 0% 98%;
-  --card-foreground: 0 0% 9%;
-  --card-border: 0 0% 94%;
+  --background: 160 24% 98%;
+  --foreground: 185 30% 11%;
+  --border: 165 16% 88%;
+  --card: 0 0% 100%;
+  --card-foreground: 185 30% 11%;
+  --card-border: 165 18% 90%;
   --sidebar: 0 0% 96%;
   --sidebar-foreground: 0 0% 9%;
   --sidebar-border: 0 0% 92%;
@@ -26,26 +26,28 @@
   --popover: 0 0% 95%;
   --popover-foreground: 0 0% 9%;
   --popover-border: 0 0% 91%;
-  --primary: 181 84% 27%;
-  --primary-foreground: 0 0% 98%;
-  --secondary: 175 18% 91%;
-  --secondary-foreground: 183 40% 16%;
-  --muted: 160 12% 93%;
-  --muted-foreground: 183 8% 38%;
-  --accent: 168 30% 90%;
-  --accent-foreground: 183 40% 16%;
+  --primary: 183 78% 25%;
+  --primary-foreground: 160 30% 98%;
+  --secondary: 168 28% 92%;
+  --secondary-foreground: 185 45% 15%;
+  --muted: 162 18% 94%;
+  --muted-foreground: 185 9% 40%;
+  --accent: 168 34% 90%;
+  --accent-foreground: 185 45% 15%;
   --destructive: 14 80% 45%;
   --destructive-foreground: 0 0% 98%;
   --input: 175 12% 74%;
   --ring: 181 84% 27%;
-  --chart-1: 181 84% 30%;
-  --chart-2: 190 70% 42%;
-  --chart-3: 43 80% 48%;
-  --chart-4: 27 87% 52%;
-  --chart-5: 6 78% 52%;
+  --chart-1: 178 72% 32%;
+  --chart-2: 192 68% 42%;
+  --chart-3: 154 52% 42%;
+  --chart-4: 32 88% 50%;
+  --chart-5: 348 72% 54%;
+  --chart-6: 256 52% 56%;
   --font-sans: Inter, "Helvetica Neue", sans-serif;
+  --font-display: "Space Grotesk", Inter, sans-serif;
   --font-serif: Georgia, serif;
-  --font-mono: Menlo, monospace;
+  --font-mono: "Geist Mono", Menlo, monospace;
   --radius: 0.5rem;
   --shadow-2xs: 0px 2px 0px 0px hsl(0 0% 0% / 0);
   --shadow-xs: 0px 2px 0px 0px hsl(0 0% 0% / 0);
@@ -107,12 +109,12 @@
   --opaque-button-border-intensity: 9;
   --elevate-1: rgba(255, 255, 255, 0.04);
   --elevate-2: rgba(255, 255, 255, 0.09);
-  --background: 0 0% 7%;
-  --foreground: 0 0% 98%;
-  --border: 0 0% 16%;
-  --card: 0 0% 9%;
-  --card-foreground: 0 0% 98%;
-  --card-border: 0 0% 13%;
+  --background: 190 28% 5%;
+  --foreground: 165 16% 92%;
+  --border: 188 16% 16%;
+  --card: 190 24% 7%;
+  --card-foreground: 165 16% 92%;
+  --card-border: 188 18% 14%;
   --sidebar: 0 0% 11%;
   --sidebar-foreground: 0 0% 98%;
   --sidebar-border: 0 0% 15%;
@@ -124,23 +126,24 @@
   --popover: 0 0% 13%;
   --popover-foreground: 0 0% 98%;
   --popover-border: 0 0% 17%;
-  --primary: 184 45% 50%;
-  --primary-foreground: 184 60% 8%;
-  --secondary: 183 12% 18%;
-  --secondary-foreground: 0 0% 98%;
-  --muted: 183 8% 19%;
-  --muted-foreground: 175 6% 66%;
-  --accent: 183 14% 18%;
-  --accent-foreground: 0 0% 98%;
+  --primary: 176 58% 50%;
+  --primary-foreground: 188 60% 7%;
+  --secondary: 188 16% 16%;
+  --secondary-foreground: 165 16% 92%;
+  --muted: 188 12% 16%;
+  --muted-foreground: 172 10% 64%;
+  --accent: 188 18% 17%;
+  --accent-foreground: 165 16% 92%;
   --destructive: 14 70% 52%;
   --destructive-foreground: 0 0% 98%;
   --input: 0 0% 30%;
   --ring: 184 45% 50%;
-  --chart-1: 184 50% 55%;
-  --chart-2: 190 60% 60%;
-  --chart-3: 43 80% 62%;
-  --chart-4: 27 85% 62%;
-  --chart-5: 6 75% 62%;
+  --chart-1: 176 62% 52%;
+  --chart-2: 192 64% 58%;
+  --chart-3: 152 56% 54%;
+  --chart-4: 34 90% 60%;
+  --chart-5: 348 76% 64%;
+  --chart-6: 258 64% 70%;
   --shadow-2xs: 0px 2px 0px 0px hsl(0 0% 0% / 0);
   --shadow-xs: 0px 2px 0px 0px hsl(0 0% 0% / 0);
   --shadow-sm: 0px 2px 0px 0px hsl(0 0% 0% / 0), 0px 1px 2px -1px hsl(0 0% 0% / 0);
@@ -200,6 +203,32 @@
 
   body {
     @apply font-sans antialiased bg-background text-foreground;
+  }
+}
+
+@layer components {
+  /* Ambient climate gradient behind the whole app */
+  .app-ambient {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(60% 50% at 12% 0%, hsl(var(--primary) / 0.08), transparent 70%),
+      radial-gradient(55% 45% at 92% 4%, hsl(var(--chart-2) / 0.07), transparent 72%),
+      radial-gradient(60% 60% at 50% 110%, hsl(var(--chart-3) / 0.05), transparent 75%);
+  }
+
+  .num {
+    font-variant-numeric: tabular-nums lining-nums;
+  }
+
+  /* Soft frosted card with hairline ring */
+  .panel {
+    @apply rounded-2xl border border-card-border bg-card;
+    box-shadow:
+      0 1px 2px hsl(var(--foreground) / 0.04),
+      0 8px 24px -16px hsl(var(--foreground) / 0.18);
   }
 }
 

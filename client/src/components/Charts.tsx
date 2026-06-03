@@ -22,15 +22,20 @@ function tooltipStyle() {
   return {
     background: "hsl(var(--popover))",
     border: "1px solid hsl(var(--border))",
-    borderRadius: 8,
+    borderRadius: 10,
     fontSize: 12,
+    boxShadow: "0 8px 24px -12px hsl(var(--foreground) / 0.3)",
     color: "hsl(var(--popover-foreground))",
   };
 }
 
 function tickFmt(s: string) {
   const f = fmtTime(s);
-  return f.slice(0, 5) === "00:00" ? f.split(" ")[0] : f.split(" ")[1] ?? f;
+  if (!f || f.includes("NaN") || f === "Invalid Date") return "";
+  const parts = f.split(" ");
+  // f 形如 "06/03 10:00"；优先显示时:分，整点 00:00 显示日期
+  const time = parts[1] ?? f;
+  return time.startsWith("00:00") ? parts[0] : time;
 }
 
 export function VolumeChart({ data }: { data: TimelinePoint[] }) {
@@ -101,9 +106,9 @@ export function CountryBar({ data }: { data: { country: string; value: number }[
           formatter={(v: number) => [`${v.toFixed(1)}%`, "报道占比"]}
           cursor={{ fill: "hsl(var(--muted))" }}
         />
-        <Bar dataKey="value" radius={[0, 4, 4, 0]}>
+        <Bar dataKey="value" radius={[0, 5, 5, 0]} maxBarSize={22}>
           {data.map((_, i) => (
-            <Cell key={i} fill={`hsl(var(--chart-${(i % 5) + 1}))`} />
+            <Cell key={i} fill={`hsl(var(--chart-${(i % 6) + 1}))`} />
           ))}
         </Bar>
       </BarChart>
