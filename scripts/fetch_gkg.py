@@ -113,6 +113,51 @@ COL_V1LOCATIONS = 9
 COL_V15TONE = 15
 COL_EXTRAS = 26
 
+# GKG 2.1 全部 27 列的官方字段名（0-based 顺序，与 GDELT GKG 2.1 规范一致）。
+# 用于把命中行的「全部原始字段」原样保存到 gkg_raw（命名字段，便于后续分析）。
+GKG_COLUMN_NAMES = [
+    "GKGRECORDID",                    # 0
+    "V2_1DATE",                       # 1
+    "V2SOURCECOLLECTIONIDENTIFIER",   # 2
+    "V2SOURCECOMMONNAME",             # 3
+    "V2DOCUMENTIDENTIFIER",           # 4  (= 文章 URL)
+    "V1COUNTS",                       # 5
+    "V2_1COUNTS",                     # 6
+    "V1THEMES",                       # 7
+    "V2ENHANCEDTHEMES",               # 8
+    "V1LOCATIONS",                    # 9
+    "V2ENHANCEDLOCATIONS",            # 10
+    "V1PERSONS",                      # 11
+    "V2ENHANCEDPERSONS",              # 12
+    "V1ORGANIZATIONS",                # 13
+    "V2ENHANCEDORGANIZATIONS",        # 14
+    "V1_5TONE",                       # 15
+    "V2_1ENHANCEDDATES",              # 16
+    "V2GCAM",                         # 17
+    "V2_1SHARINGIMAGE",               # 18
+    "V2_1RELATEDIMAGES",              # 19
+    "V2_1SOCIALIMAGEEMBEDS",          # 20
+    "V2_1SOCIALVIDEOEMBEDS",          # 21
+    "V2_1QUOTATIONS",                 # 22
+    "V2_1ALLNAMES",                   # 23
+    "V2_1AMOUNTS",                    # 24
+    "V2_1TRANSLATIONINFO",            # 25
+    "V2EXTRAS",                       # 26
+]
+
+
+def build_gkg_raw(fields: list, source_name: str, gkg_file: str) -> dict:
+    """把命中行的全部 27 个原始 GKG 字段按官方字段名打包成 dict。
+    多出的列（极少见的格式漂移）放进 _extra_cols；并记录来源源/文件名。"""
+    raw = {}
+    for idx, name in enumerate(GKG_COLUMN_NAMES):
+        raw[name] = fields[idx] if idx < len(fields) else ""
+    if len(fields) > len(GKG_COLUMN_NAMES):
+        raw["_extra_cols"] = fields[len(GKG_COLUMN_NAMES):]
+    raw["_gkg_source"] = source_name      # english / translingual
+    raw["_gkg_file"] = gkg_file           # 来源批文件名
+    return raw
+
 _PAGE_TITLE_RE = re.compile(r"<PAGE_TITLE>(.*?)</PAGE_TITLE>", re.S | re.I)
 
 
@@ -239,7 +284,8 @@ def classify_row(row_themes: set, title: str) -> list:
 
 
 def process_csv(csv_text: str, articles_by_url: dict,
-                vol_buckets, tone_sum, tone_cnt) -> int:
+                vol_buckets, tone_sum, tone_cnt,
+                source_name: str = "", gkg_file: str = "") -> int:
     matched = 0
     reader = csv.reader(io.StringIO(csv_text), delimiter="\t")
     for fields in reader:
@@ -291,6 +337,8 @@ def process_csv(csv_text: str, articles_by_url: dict,
                 "sourcecountry": country,
                 "seendate": iso,
                 "topics": topics,
+                # 本篇新闻命中行的全部 27 个 GKG 原始字段（命名）
+                "gkg_raw": build_gkg_raw(fields, source_name, gkg_file),
             }
 
         bucket = iso
@@ -331,7 +379,8 @@ def main():
             print(f"[err] {name} download/unzip failed: {e}", file=sys.stderr)
             continue
         any_fetch_ok = True
-        m = process_csv(csv_text, articles_by_url, vol_buckets, tone_sum, tone_cnt)
+        m = process_csv(csv_text, articles_by_url, vol_buckets, tone_sum, tone_cnt,
+                        source_name=name, gkg_file=fname)
         print(f"[ok] {name} {fname}: matched={m}", file=sys.stderr)
         used_files.append(fname)
         processed.add(fname)
