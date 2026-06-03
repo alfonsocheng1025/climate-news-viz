@@ -213,4 +213,104 @@ class GdeltLiveSource implements ClimateDataSource {
   }
 }
 
-export const dataSource: ClimateDataSource = new GdeltLiveSource();
+// ---- timespan -> 小时数（供查库用） -------------------------------
+export function timespanToHours(ts: string): number {
+  const m = ts.match(/^(\d+)(min|h|d|w|m)$/);
+  if (!m) return 24;
+  const n = +m[1];
+  switch (m[2]) {
+    case "min": return Math.max(1, Math.ceil(n / 60));
+    case "h": return n;
+    case "d": return n * 24;
+    case "w": return n * 24 * 7;
+    case "m": return n * 24 * 30;
+    default: return 24;
+  }
+}
+
+// ====================================================================
+// 方案 A：查询自建 Supabase 库（通过只读 RPC，anon 密钥）
+// 接口与 GdeltLiveSource 完全一致，路由层 / 前端无需改动。
+// 返回结构也保持与 GDELT 一致（{articles:[]} / {timeline:[{series,data:[{date,value}]}]}）。
+// ====================================================================
+const SUPABASE_URL = process.env.SUPABASE_URL || "";
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "";
+
+// 不用 supabase-js（其 realtime 客户端在 Node 20 下缺 WebSocket 会报错），
+// 直接用 fetch 调 PostgREST 的 RPC 端点，轻量且无额外依赖。
+async function rpc<T = any>(fn: string, args: Record<string, unknown>): Promise<T> {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+    },
+    body: JSON.stringify(args),
+  });
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`SUPABASE_ERROR: ${res.status} ${txt.slice(0, 160)}`);
+  }
+  return res.json();
+}
+
+class SupabaseSource implements ClimateDataSource {
+  async articles(topic: string, timespan: string, max: number) {
+    const data = await rpc<any[]>("climate_articles", {
+      p_topic: topic,
+      p_hours: timespanToHours(timespan),
+      p_max: Math.min(max, 250),
+    });
+    return { articles: data ?? [] };
+  }
+
+  private async timeline(topic: string, series: "volume" | "tone", timespan: string) {
+    const data = await rpc<any[]>("climate_timeline", {
+      p_topic: topic,
+      p_series: series,
+      p_hours: timespanToHours(timespan),
+    });
+    // 转成 GDELT 风格：{timeline:[{series,data:[{date,value}]}]}
+    const points = (data ?? []).map((r: any) => ({
+      date: r.bucket_time,
+      value: r.value,
+    }));
+    return { timeline: [{ series, data: points }] };
+  }
+
+  timelineVolume(topic: string, timespan: string) {
+    return this.timeline(topic, "volume", timespan);
+  }
+  timelineTone(topic: string, timespan: string) {
+    return this.timeline(topic, "tone", timespan);
+  }
+
+  async timelineCountry(topic: string, timespan: string) {
+    const data = await rpc<any[]>("climate_countries", {
+      p_topic: topic,
+      p_hours: timespanToHours(timespan),
+    });
+    // 前端期望 {timeline:[{series:国家, data:[{date,value}]}]}，取均值即文章数
+    const now = new Date().toISOString();
+    const timeline = (data ?? []).map((r: any) => ({
+      series: r.sourcecountry,
+      data: [{ date: now, value: Number(r.cnt) }],
+    }));
+    return { timeline };
+  }
+
+  async timelineLang(topic: string, timespan: string) {
+    // 语言维度暂从 articles 派生（前端主用 articles 统计语种数）
+    return { timeline: [] };
+  }
+
+  async geo(topic: string, timespan: string) {
+    // 地图由 timelineCountry 驱动，这里返回空 GeoJSON 占位
+    return { type: "FeatureCollection", features: [] };
+  }
+}
+
+// 当前使用方案 A（查自建 Supabase 库）。
+// 如需回退到方案 B（实时代理 GDELT），换成 new GdeltLiveSource() 即可。
+export const dataSource: ClimateDataSource = new SupabaseSource();
