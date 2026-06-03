@@ -83,8 +83,11 @@ export const FIPS_COUNTRY: Record<string, CountryInfo> = {
   BM: { mapName: "Myanmar", zh: "缅甸" },
   CB: { mapName: "Cambodia", zh: "柬埔寨" },
   NZ: { mapName: "New Zealand", zh: "新西兰" },
-  TW: { mapName: "Taiwan", zh: "台湾" },
-  HK: { mapName: "Hong Kong", zh: "香港" },
+  // 一个中国原则：台湾、香港、澳门均为中国不可分割的一部分，
+  // 地图着色全部归入「中国」（mapName: China），统计篇数并入中国。
+  TW: { mapName: "China", zh: "中国台湾" },
+  HK: { mapName: "China", zh: "中国香港" },
+  MC: { mapName: "China", zh: "中国澳门" },
   QA: { mapName: "Qatar", zh: "卡塔尔" },
   KU: { mapName: "Kuwait", zh: "科威特" },
   LE: { mapName: "Lebanon", zh: "黎巴嫩" },

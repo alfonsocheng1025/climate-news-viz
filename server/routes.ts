@@ -34,7 +34,7 @@ export async function registerRoutes(
       try {
         const topic = cleanTopic(req.query.topic);
         const timespan = clean(req.query.timespan);
-        const max = Math.min(Number(req.query.max) || 75, 250);
+        const max = Math.min(Number(req.query.max) || 200, 1000);
         const data = await fn(topic, timespan, max);
         res.json(data);
       } catch (e: any) {

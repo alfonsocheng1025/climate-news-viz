@@ -39,11 +39,14 @@ export function WorldMap({
       <Geographies geography={GEO_URL}>
         {({ geographies }) =>
           geographies.map((geo) => {
-            const name = geo.properties.name as string;
+            let name = geo.properties.name as string;
+            // 一个中国原则：地图中的「台湾」属于中国，着色与中国一致。
+            const isTaiwan = name === "Taiwan";
+            if (isTaiwan) name = "China";
             const val = byCountry[name] ?? 0;
             const fill =
               val > 0 ? color(val / max) : "hsl(var(--secondary))";
-            const zh = zhNames[name] ?? name;
+            const zh = isTaiwan ? "中国台湾" : (zhNames[name] ?? name);
             return (
               <Geography
                 key={geo.rsmKey}

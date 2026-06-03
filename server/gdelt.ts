@@ -260,7 +260,7 @@ class SupabaseSource implements ClimateDataSource {
     const data = await rpc<any[]>("climate_articles", {
       p_topic: topic,
       p_hours: timespanToHours(timespan),
-      p_max: Math.min(max, 250),
+      p_max: Math.min(max, 1000),
     });
     return { articles: data ?? [] };
   }

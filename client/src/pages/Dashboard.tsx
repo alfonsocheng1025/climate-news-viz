@@ -3,6 +3,7 @@ import {
   Activity, Globe2, Newspaper, Languages, Moon, Sun, RefreshCw,
   TrendingUp, Smile, MapPin, ExternalLink, AlertTriangle, Leaf,
   ArrowUpRight, ArrowDownRight, Minus, Building2, Cloud, Tags,
+  Heart, Database, Scale, Clock,
 } from "lucide-react";
 import { useTheme } from "@/components/ThemeProvider";
 import {
@@ -54,7 +55,7 @@ export default function Dashboard() {
   const [page, setPage] = useState(1);
 
   // 拉更多文章（用于词云/实体/媒体排行统计更稳健）
-  const articles = useArticles(topic, timespan, 250);
+  const articles = useArticles(topic, timespan, 1000);
   const volume = useVolume(topic, timespan);
   const tone = useTone(topic, timespan);
   const country = useCountry(topic, timespan);
@@ -68,23 +69,38 @@ export default function Dashboard() {
 
   // ---- 国家聚合：FIPS 代码 -> 中文名 + 地图英文名 ----
   const countrySeries = country.data?.timeline ?? [];
+  // 按地图英文国名合并聚合：一个中国原则下，TW/HK/MC 均归入 China，
+  // 因此排行与地图都应按 mapName 合并，避免台湾/香港独立成行。
   const countryAgg = useMemo(() => {
-    return countrySeries
-      .map((s) => ({
-        code: s.series,
-        zh: fipsToZh(s.series),
-        value: avg(s.data), // 绝对篇数
-      }))
-      .filter((d) => d.value > 0 && d.code)
+    const byMap = new Map<string, { mapName: string; zh: string; value: number }>();
+    for (const s of countrySeries) {
+      const code = s.series;
+      const value = avg(s.data); // 绝对篇数
+      if (!code || value <= 0) continue;
+      const mapName = fipsToMapName(code) || code;
+      const existing = byMap.get(mapName);
+      if (existing) {
+        existing.value += value;
+        // 中国统一显示为「中国」（不被中国台湾/香港覆盖）
+        if (mapName === "China") existing.zh = "中国";
+      } else {
+        byMap.set(mapName, {
+          mapName,
+          zh: mapName === "China" ? "中国" : fipsToZh(code),
+          value,
+        });
+      }
+    }
+    return Array.from(byMap.values())
+      .map((d) => ({ code: d.mapName, zh: d.zh, value: d.value }))
       .sort((a, b) => b.value - a.value);
   }, [countrySeries]);
 
-  // 地图：key=地图英文国名, value=篇数
+  // 地图：key=地图英文国名, value=篇数（countryAgg.code 已是 mapName）
   const countryMap = useMemo(() => {
     const m: Record<string, number> = {};
     for (const d of countryAgg) {
-      const mapName = fipsToMapName(d.code);
-      if (mapName) m[mapName] = (m[mapName] ?? 0) + d.value;
+      if (d.code) m[d.code] = (m[d.code] ?? 0) + d.value;
     }
     return m;
   }, [countryAgg]);
@@ -92,8 +108,7 @@ export default function Dashboard() {
   const zhNames = useMemo(() => {
     const m: Record<string, string> = {};
     for (const d of countryAgg) {
-      const mapName = fipsToMapName(d.code);
-      if (mapName) m[mapName] = d.zh;
+      if (d.code) m[d.code] = d.zh;
     }
     return m;
   }, [countryAgg]);
@@ -147,7 +162,14 @@ export default function Dashboard() {
             </div>
             <div className="leading-tight">
               <h1 className="font-display text-[1.05rem] font-bold tracking-tight">气候新闻实时观测</h1>
-              <p className="text-xs text-muted-foreground">GDELT Climate News Monitor</p>
+              <a
+                href="https://climate.newsfindsme.com/"
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs text-muted-foreground transition-colors hover:text-primary"
+              >
+                ZJU-CMIC Program on Climate and Science Communication
+              </a>
             </div>
           </div>
 
@@ -229,7 +251,7 @@ export default function Dashboard() {
             icon={Newspaper} label="报道总量" value={`${arts.length}`}
             unit="篇"
             hint={`${timespanLabel} · ${activeTopic?.label ?? ""}`} accent="chart-1"
-            info={`所选议题与时间窗内入库的文章绝对数量（去重后按 URL 计）。当前抓取上限为每议题 250 篇。`}
+            info={`所选议题与时间窗内入库的文章绝对数量（去重后按 URL 计）。数据库每 15 分钟持续累积，无上限；此处为单次展示读取，上限 1000 篇。`}
           />
           <Kpi
             icon={TrendingUp} label="报道强度" value={`${latestVol.toFixed(2)}%`}
@@ -281,11 +303,14 @@ export default function Dashboard() {
             className="lg:col-span-2"
             info="按「报道国」（发布新闻的媒体所在国）的报道篇数着色：颜色越偏橙红，该国媒体在此议题上的报道越多。代表「哪些国家的媒体在关注」，非事件发生地。悬浮可看具体篇数。"
           >
-            <div className="h-[360px] p-2">
+            <div className="h-[330px] p-2">
               {country.isLoading ? <ChartSkeleton /> :
                 Object.keys(countryMap).length === 0 ? <EmptyChart label="暂无地区数据" /> :
                 <WorldMap byCountry={countryMap} zhNames={zhNames} />}
             </div>
+            <p className="px-4 pb-3 text-[11px] leading-snug text-muted-foreground">
+              说明：台湾、香港、澳门及南海诸岛均为中华人民共和国领土不可分割的一部分，地图着色与统计均已合并入中国。
+            </p>
           </Panel>
           <Panel
             icon={Globe2} title="报道国排行" sub="Top 12"
@@ -303,7 +328,7 @@ export default function Dashboard() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <Panel
             icon={Building2} title="媒体来源排行" sub={`Top ${outletRank.length}`}
-            info="按发布该议题报道的媒体（域名）统计的文章数量排行，反映哪些媒体最活跃。基于当前样本（最多 250 篇）。"
+            info="按发布该议题报道的媒体（域名）统计的文章数量排行，反映哪些媒体最活跃。基于当前样本（单次读取上限 1000 篇）。"
           >
             <div className="h-[320px] p-4">
               {articles.isLoading ? <ChartSkeleton /> :
@@ -374,12 +399,92 @@ export default function Dashboard() {
           </div>
         </Panel>
 
-        <footer className="pt-2 pb-8 text-center text-xs text-muted-foreground">
-          数据来源：
-          <a href="https://www.gdeltproject.org/" target="_blank" rel="noreferrer" className="text-primary underline-offset-2 hover:underline">
-            The GDELT Project
-          </a>
-          {" · "}GKG / DOC 2.0（每 15 分钟入库 · 覆盖最近 3 个月）· 数据持久化于 Supabase。
+        {/* 数据来源与致谢说明 */}
+        <Panel icon={Heart} title="数据来源与致谢" sub="Acknowledgments">
+          <div className="space-y-5 p-5 text-sm leading-relaxed text-muted-foreground">
+            <p>
+              本看板的全部新闻数据由
+              {" "}
+              <a
+                href="https://www.gdeltproject.org/"
+                target="_blank"
+                rel="noreferrer"
+                className="font-semibold text-primary underline-offset-2 hover:underline"
+              >
+                The GDELT Project（全球事件、语言与语调数据库）
+              </a>
+              {" "}
+              提供。GDELT 是一个开放的全球新闻监测与计算社会科学项目，实时监测全球几乎所有国家、上百种语言的广播、印刷与网络新闻，并将其整理为结构化的开放数据。我们对 GDELT 团队长期免费开放高质量数据、支持全球学术与公共研究的努力表示诚挚感谢。
+            </p>
+
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-2">
+              <AckCard
+                icon={Database}
+                title="GKG · 全球知识图谱"
+                body="GDELT Global Knowledge Graph 从每篇新闻中抽取人物、机构、地点、主题与情感等实体信息。本看板的入库管线每 15 分钟解析 GKG 原始文件，提取气候议题相关报道。"
+              />
+              <AckCard
+                icon={Activity}
+                title="DOC 2.0 API"
+                body="GDELT DOC 2.0 文档检索接口提供文章列表与报道量、情感时间线。其单次请求最多返回 250 条，是接口本身的官方上限。"
+              />
+              <AckCard
+                icon={Clock}
+                title="持续累积，并非 250 篇上限"
+                body="数据库每 15 分钟自动入库新报道并长期持续累积，没有总量限制。看板中的「250 / 1000」只是单次请求或前端展示读取的条数上限，用于词云、实体与媒体排行等客户端统计，并不限制底层数据积累。"
+              />
+              <AckCard
+                icon={Scale}
+                title="开放授权"
+                body="GDELT 全部数据集对学术、商业与政府用途免费开放、不受限制使用。按其授权要求，任何使用或再分发都须注明 GDELT Project 并链接至其官网，本看板已遵循此要求。"
+              />
+            </div>
+
+            <p className="text-xs">
+              数据持久化于
+              {" "}
+              <a
+                href="https://supabase.com/"
+                target="_blank"
+                rel="noreferrer"
+                className="text-primary underline-offset-2 hover:underline"
+              >
+                Supabase
+              </a>
+              （PostgreSQL）。世界地图底图来自
+              {" "}
+              <a
+                href="https://github.com/topojson/world-atlas"
+                target="_blank"
+                rel="noreferrer"
+                className="text-primary underline-offset-2 hover:underline"
+              >
+                world-atlas（Natural Earth 公有领域数据）
+              </a>
+              。在此一并向所有开源数据与工具的维护者致谢。
+            </p>
+          </div>
+        </Panel>
+
+        <footer className="space-y-1.5 pt-2 pb-8 text-center text-xs text-muted-foreground">
+          <p>
+            数据来源：
+            <a href="https://www.gdeltproject.org/" target="_blank" rel="noreferrer" className="text-primary underline-offset-2 hover:underline">
+              The GDELT Project
+            </a>
+            {" · "}GKG / DOC 2.0（每 15 分钟入库 · 覆盖最近 3 个月）· 数据持久化于 Supabase。
+          </p>
+          <p>
+            © {new Date().getFullYear()}{" "}
+            <a
+              href="https://climate.newsfindsme.com/"
+              target="_blank"
+              rel="noreferrer"
+              className="font-medium text-primary underline-offset-2 hover:underline"
+            >
+              ZJU-CMIC Program on Climate and Science Communication
+            </a>
+          </p>
         </footer>
       </main>
     </div>
@@ -465,6 +570,24 @@ function ArticleCard({ a }: { a: Article }) {
         <div className="num text-xs text-muted-foreground">{relTime(a.seendate)}</div>
       </div>
     </a>
+  );
+}
+
+function AckCard({
+  icon: Icon, title, body,
+}: {
+  icon: any; title: string; body: string;
+}) {
+  return (
+    <div className="flex gap-3 rounded-xl border border-card-border bg-card/60 p-3.5">
+      <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+        <Icon className="size-4" />
+      </span>
+      <div className="min-w-0">
+        <p className="text-sm font-semibold text-foreground">{title}</p>
+        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{body}</p>
+      </div>
+    </div>
   );
 }
 
