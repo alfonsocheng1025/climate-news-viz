@@ -22,8 +22,8 @@ stmts = []
 
 articles = payload.get("articles", [])
 if articles:
-    # 分批，避免单条 SQL 过大
-    BATCH = 200
+    # 分批，避免单条 SQL 过大（全文 body 字段较大，按小批切分）
+    BATCH = 10
     for i in range(0, len(articles), BATCH):
         chunk = articles[i:i + BATCH]
         stmts.append(
