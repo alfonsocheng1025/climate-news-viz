@@ -22,3 +22,7 @@ cron_tracking/
 
 # Vercel pre-built serverless bundle (rebuilt during Vercel build)
 api/index.js
+
+# Python
+__pycache__/
+*.pyc
