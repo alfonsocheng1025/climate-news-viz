@@ -1,0 +1,73 @@
+name: Climate GKG Ingest
+
+# 每 15 分钟抓取 GDELT GKG（English + Translingual 双源）→ 四主题码+关键词过滤
+# → 抓取文章全文（媒体/记者/时间/导语/正文/图片）→ 直连写入 Supabase climate schema。
+# 等价于原 Perplexity 每 15 分钟定时任务，但完全托管在 GitHub Actions，免费、独立。
+
+on:
+  schedule:
+    # GitHub Actions cron 用 UTC。*/15 = 每 15 分钟。
+    # 注意：GitHub 高峰期 schedule 可能有几分钟延迟，这对本任务无影响（GKG 文件幂等去重）。
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}   # 允许在 Actions 页面手动触发一次（测试用）
+
+# 避免上一轮没跑完时本轮叠加（GKG 文件幂等，跳过堆积的运行）
+concurrency:
+  group: climate-ingest
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Restore idempotency cache (processed_gkg.txt)
+        uses: actions/cache@v4
+        with:
+          path: .gkg_track
+          # key 每次运行唯一，确保每轮都写一份新缓存；restore-keys 取最新的已有缓存
+          key: gkg-track-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            gkg-track-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r scripts/requirements.txt
+
+      - name: Run GKG pipeline (fetch + filter + full-text → SQL)
+        id: pipeline
+        env:
+          GKG_TRACK_DIR: ${{ github.workspace }}/.gkg_track
+          FULLTEXT_MAX: "250"
+          FULLTEXT_WORKERS: "10"
+          FULLTEXT_BODY_MAX: "8000"
+        run: |
+          mkdir -p "$GKG_TRACK_DIR"
+          set +e
+          python scripts/run_gkg_pipeline.py
+          rc=$?
+          set -e
+          echo "pipeline_rc=$rc" >> "$GITHUB_OUTPUT"
+          # 退出码 2 = 本轮无新文件/无气候文章（正常跳过）；3 = 抓取失败（本轮跳过）
+          if [ "$rc" = "2" ]; then echo "本轮无新数据，跳过入库"; fi
+          if [ "$rc" = "3" ]; then echo "GKG 抓取失败，本轮跳过"; fi
+          exit 0
+
+      - name: Ingest into Supabase
+        if: steps.pipeline.outputs.pipeline_rc == '0'
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          python scripts/ingest_db.py

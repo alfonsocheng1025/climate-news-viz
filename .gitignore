@@ -16,5 +16,9 @@ data.db-journal
 .DS_Store
 .vercel
 
+# GKG 幂等追踪（GitHub Actions 用 cache 持久化，不进仓库）
+.gkg_track/
+cron_tracking/
+
 # Vercel pre-built serverless bundle (rebuilt during Vercel build)
 api/index.js

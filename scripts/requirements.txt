@@ -1,0 +1,3 @@
+# 气候新闻 GKG 抓取管线依赖（GitHub Actions）
+trafilatura==2.0.0
+psycopg2-binary==2.9.9
