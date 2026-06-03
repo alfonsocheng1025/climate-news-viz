@@ -58,12 +58,14 @@ function qs(topic: string, timespan: string, extra: Record<string, string> = {})
   return "?" + new URLSearchParams({ topic, timespan, ...extra }).toString();
 }
 
-// 后端限流时返回 429；这里自动重试
+// 后端已内置 5 秒串行队列 + 限流冷却 + 过期缓存兜底。
+// 因此前端不做激进重试（避免在冷却期重试雪崩），仅靠定时轮询自愈：
+// 后端冷却结束后，下一轮 120 秒刷新即可取回最新数据。
 const liveOpts = {
   refetchInterval: 120_000,
   staleTime: 60_000,
-  retry: 3,
-  retryDelay: 6500,
+  retry: 1,
+  retryDelay: 8000,
 };
 
 export function useArticles(topic: string, timespan: string, max = 60) {

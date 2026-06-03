@@ -60,10 +60,24 @@ export const TOPIC_PRESETS: Record<string, { label: string; query: string }> = {
   },
 };
 
-// ---- 请求队列 + 限流（每 5 秒最多 1 次外呼） ------------------------
-const MIN_INTERVAL_MS = 5200;
+// ---- 请求队列 + 限流（每 6 秒最多 1 次外呼） ------------------------
+// GDELT 官方限制「每 5 秒一次」。一旦被判定超限会进入更严格的惩罚期，
+// 期间即便间隔合规也会持续返回 429。因此这里：
+//   1) 基础间隔提到 6 秒，留出余量；
+//   2) 一旦收到限流信号，进入 90 秒全局冷却，期间所有外呼直接跳过
+//      （改由上层的过期缓存兜底），避免重试雪崩不断刷新惩罚计时。
+const MIN_INTERVAL_MS = 6000;
+const COOLDOWN_MS = 90_000;
 let lastCall = 0;
+let cooldownUntil = 0;
 let chain: Promise<unknown> = Promise.resolve();
+
+export function enterCooldown() {
+  cooldownUntil = Date.now() + COOLDOWN_MS;
+}
+export function inCooldown() {
+  return Date.now() < cooldownUntil;
+}
 
 function enqueue<T>(fn: () => Promise<T>): Promise<T> {
   const run = chain.then(async () => {
@@ -80,7 +94,7 @@ function enqueue<T>(fn: () => Promise<T>): Promise<T> {
   return run as Promise<T>;
 }
 
-// ---- 内存缓存 ------------------------------------------------------
+// ---- 内存缓存（含过期兜底） ------------------------------------
 type CacheEntry = { ts: number; data: unknown };
 const cache = new Map<string, CacheEntry>();
 const TTL_MS = 60_000; // 1 分钟，匹配 GDELT 15 分钟更新节奏下的合理新鲜度
@@ -89,30 +103,43 @@ async function cachedFetch(url: string, ttl = TTL_MS): Promise<any> {
   const hit = cache.get(url);
   if (hit && Date.now() - hit.ts < ttl) return hit.data;
 
-  const data = await enqueue(async () => {
-    const res = await fetch(url, { headers: { "User-Agent": "climate-news-viz/1.0" } });
-    const text = await res.text();
-    const trimmed = text.trim();
-    // GDELT 限流时返回纯文本提示而非 JSON
-    if (trimmed.startsWith("Please limit")) {
-      throw new Error("GDELT_RATE_LIMITED");
-    }
-    // 其它纯文本错误（如查询过短）不应被缓存
-    if (
-      trimmed.startsWith("The specified") ||
-      trimmed.startsWith("Your query") ||
-      (!trimmed.startsWith("{") && !trimmed.startsWith("["))
-    ) {
-      throw new Error(`GDELT_QUERY_ERROR: ${trimmed.slice(0, 120)}`);
-    }
-    try {
-      return JSON.parse(text);
-    } catch {
-      throw new Error("GDELT_PARSE_ERROR");
-    }
-  });
-  cache.set(url, { ts: Date.now(), data });
-  return data;
+  // 冷却期间不再外呼：有过期缓存则直接返回旧数据，否则报限流
+  if (inCooldown()) {
+    if (hit) return hit.data;
+    throw new Error("GDELT_RATE_LIMITED");
+  }
+
+  try {
+    const data = await enqueue(async () => {
+      const res = await fetch(url, { headers: { "User-Agent": "climate-news-viz/1.0" } });
+      const text = await res.text();
+      const trimmed = text.trim();
+      // GDELT 限流时返回纯文本提示而非 JSON
+      if (trimmed.startsWith("Please limit")) {
+        enterCooldown();
+        throw new Error("GDELT_RATE_LIMITED");
+      }
+      // 其它纯文本错误（如查询过短）不应被缓存
+      if (
+        trimmed.startsWith("The specified") ||
+        trimmed.startsWith("Your query") ||
+        (!trimmed.startsWith("{") && !trimmed.startsWith("["))
+      ) {
+        throw new Error(`GDELT_QUERY_ERROR: ${trimmed.slice(0, 120)}`);
+      }
+      try {
+        return JSON.parse(text);
+      } catch {
+        throw new Error("GDELT_PARSE_ERROR");
+      }
+    });
+    cache.set(url, { ts: Date.now(), data });
+    return data;
+  } catch (e: any) {
+    // 限流或上游错误时，若有过期旧数据则兜底返回，保证页面始终有内容
+    if (hit && e?.message === "GDELT_RATE_LIMITED") return hit.data;
+    throw e;
+  }
 }
 
 // 注意：GDELT 把查询串里的 '+' 当作字面量，会破坏带空格的短语匹配。
