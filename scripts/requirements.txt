@@ -1,3 +1,3 @@
 # 气候新闻 GKG 抓取管线依赖（GitHub Actions）
+# 入库走 anon key + REST（标准库 urllib），无需数据库驱动。
 trafilatura==2.0.0
-psycopg2-binary==2.9.9

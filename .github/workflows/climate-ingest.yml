@@ -68,6 +68,7 @@ jobs:
       - name: Ingest into Supabase
         if: steps.pipeline.outputs.pipeline_rc == '0'
         env:
-          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
           python scripts/ingest_db.py
