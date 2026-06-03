@@ -5,7 +5,7 @@ import {
 } from "lucide-react";
 import { useTheme } from "@/components/ThemeProvider";
 import {
-  useTopics, useArticles, useVolume, useTone, useCountry,
+  TOPICS, useArticles, useVolume, useTone, useCountry,
   TIMESPANS, fmtTime, relTime, Article, TimelinePoint,
 } from "@/lib/climate";
 import { VolumeChart, ToneChart, CountryBar } from "@/components/Charts";
@@ -38,7 +38,6 @@ export default function Dashboard() {
   const [topic, setTopic] = useState("climate_change");
   const [timespan, setTimespan] = useState("1d");
 
-  const topics = useTopics();
   const articles = useArticles(topic, timespan, 60);
   const volume = useVolume(topic, timespan);
   const tone = useTone(topic, timespan);
@@ -69,9 +68,11 @@ export default function Dashboard() {
   const langCount = new Set(arts.map((a) => a.language)).size;
 
   const loadingAny = volume.isLoading || tone.isLoading || articles.isLoading;
+  const isRate = (e: unknown) =>
+    (e as any)?.message?.includes("429") ||
+    (e as any)?.message?.includes("rate_limited");
   const rateLimited =
-    (volume.error as any)?.message?.includes("429") ||
-    (articles.error as any)?.message?.includes("429");
+    isRate(volume.error) || isRate(articles.error) || isRate(tone.error);
 
   const refetchAll = () => {
     volume.refetch(); tone.refetch(); country.refetch(); articles.refetch();
@@ -124,7 +125,7 @@ export default function Dashboard() {
         {/* Filters */}
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex flex-wrap gap-1.5">
-            {(topics.data ?? []).map((t) => (
+            {TOPICS.map((t) => (
               <button
                 key={t.key}
                 onClick={() => setTopic(t.key)}

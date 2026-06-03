@@ -1,7 +1,24 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "./queryClient";
 
-export type Topic = { key: string; label: string };
+/**
+ * 数据获取层
+ * ------------------------------------------------------------
+ * 方案 B（当前）：调用本站后端代理（Express），由后端转发 GDELT DOC 2.0 API。
+ *   为什么必须走后端：GDELT 的响应（尤其限流文本）不带 CORS 头，浏览器
+ *   直连会被拦截。后端代理同时负责：5 秒限流串行队列 + 内存缓存。
+ *
+ * 切换到方案 A（自建 Supabase 库）时：只需替换后端 server/gdelt.ts 里的
+ *   数据源实现，本文件与组件层无需改动。
+ */
+
+export const TOPICS = [
+  { key: "all", label: "全部气候议题" },
+  { key: "climate_change", label: "气候变化 / 全球变暖" },
+  { key: "extreme_weather", label: "极端天气 / 灾害" },
+  { key: "renewable_energy", label: "可再生能源" },
+  { key: "carbon_policy", label: "碳排放 / 政策" },
+];
 
 export const TIMESPANS = [
   { value: "3h", label: "近 3 小时" },
@@ -28,6 +45,10 @@ export interface TimelinePoint {
   value: number;
 }
 
+interface TimelineResp {
+  timeline?: { series: string; data: TimelinePoint[] }[];
+}
+
 async function getJson<T>(url: string): Promise<T> {
   const res = await apiRequest("GET", url);
   return res.json();
@@ -37,32 +58,23 @@ function qs(topic: string, timespan: string, extra: Record<string, string> = {})
   return "?" + new URLSearchParams({ topic, timespan, ...extra }).toString();
 }
 
-// 自动重试限流的查询配置（GDELT 限流时后端返回 429）
+// 后端限流时返回 429；这里自动重试
 const liveOpts = {
-  refetchInterval: 90_000, // 与 15 分钟更新节奏相符，保持「实时」感
+  refetchInterval: 120_000,
   staleTime: 60_000,
-  retry: 2,
-  retryDelay: 6000, // 限流后等待 >5s 再试
+  retry: 3,
+  retryDelay: 6500,
 };
-
-export function useTopics() {
-  return useQuery<Topic[]>({
-    queryKey: ["/api/topics"],
-    queryFn: () => getJson("/api/topics"),
-    staleTime: Infinity,
-  });
-}
 
 export function useArticles(topic: string, timespan: string, max = 60) {
   return useQuery({
     queryKey: ["/api/articles", topic, timespan, max],
-    queryFn: () => getJson<{ articles?: Article[] }>(`/api/articles${qs(topic, timespan, { max: String(max) })}`),
+    queryFn: () =>
+      getJson<{ articles?: Article[] }>(
+        `/api/articles${qs(topic, timespan, { max: String(max) })}`,
+      ),
     ...liveOpts,
   });
-}
-
-interface TimelineResp {
-  timeline?: { series: string; data: TimelinePoint[] }[];
 }
 
 export function useVolume(topic: string, timespan: string) {
@@ -89,9 +101,8 @@ export function useCountry(topic: string, timespan: string) {
   });
 }
 
-// 工具：GDELT 时间格式 20260603T083000Z -> Date
+// ---- 时间工具 ------------------------------------------------------
 export function parseGdeltDate(s: string): Date {
-  // 兼容 20260603T083000Z 和 20260603083000
   const m = s.replace("T", "").replace("Z", "");
   const y = +m.slice(0, 4),
     mo = +m.slice(4, 6) - 1,
@@ -102,8 +113,7 @@ export function parseGdeltDate(s: string): Date {
 }
 
 export function fmtTime(s: string): string {
-  const d = parseGdeltDate(s);
-  return d.toLocaleString("zh-CN", {
+  return parseGdeltDate(s).toLocaleString("zh-CN", {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
