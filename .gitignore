@@ -14,3 +14,7 @@ data.db-journal
 
 *.log
 .DS_Store
+.vercel
+
+# Vercel pre-built serverless bundle (rebuilt during Vercel build)
+api/index.js

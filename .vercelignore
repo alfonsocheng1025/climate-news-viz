@@ -1,0 +1,8 @@
+dist
+node_modules
+.env
+scripts
+cron_tracking
+server/index.ts.bak
+*.bak
+data.db
