@@ -38,6 +38,13 @@ export interface Article {
   domain: string;
   language: string;
   sourcecountry: string;
+  // 全文字段（方案 A / Supabase 入库后才有）
+  outlet?: string | null;
+  authors?: string[] | null;
+  published_at?: string | null;
+  lede?: string | null;
+  body?: string | null;
+  top_image?: string | null;
 }
 
 export interface TimelinePoint {

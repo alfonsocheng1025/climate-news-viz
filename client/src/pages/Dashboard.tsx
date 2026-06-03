@@ -1,16 +1,19 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import {
   Activity, Globe2, Newspaper, Languages, Moon, Sun, RefreshCw,
   TrendingUp, Smile, MapPin, ExternalLink, AlertTriangle, Leaf,
-  ArrowUpRight, ArrowDownRight, Minus,
+  ArrowUpRight, ArrowDownRight, Minus, Building2, Cloud, Tags,
 } from "lucide-react";
 import { useTheme } from "@/components/ThemeProvider";
 import {
   TOPICS, useArticles, useVolume, useTone, useCountry,
-  TIMESPANS, fmtTime, relTime, Article, TimelinePoint,
+  TIMESPANS, relTime, Article, TimelinePoint,
 } from "@/lib/climate";
+import { fipsToZh, fipsToMapName } from "@/lib/countries";
+import { buildWordCloud, buildEntities, buildOutletRanking, decodeEntities } from "@/lib/textmine";
 import { VolumeChart, ToneChart, CountryBar } from "@/components/Charts";
 import { WorldMap } from "@/components/WorldMap";
+import { InfoTip, WordCloud, HBarRank, Pager } from "@/components/Extras";
 import { Skeleton } from "@/components/ui/skeleton";
 
 function avg(data: TimelinePoint[]) {
@@ -18,10 +21,13 @@ function avg(data: TimelinePoint[]) {
   return data.reduce((s, d) => s + d.value, 0) / data.length;
 }
 
+const PAGE_SIZE = 12;
+
 function Panel({
-  icon: Icon, title, sub, className = "", children,
+  icon: Icon, title, sub, info, className = "", children,
 }: {
-  icon: any; title: string; sub?: string; className?: string; children: React.ReactNode;
+  icon: any; title: string; sub?: string; info?: string;
+  className?: string; children: React.ReactNode;
 }) {
   return (
     <section className={`panel flex flex-col overflow-hidden ${className}`}>
@@ -30,6 +36,7 @@ function Panel({
           <Icon className="size-4" />
         </span>
         <h2 className="text-sm font-semibold tracking-tight">{title}</h2>
+        {info && <InfoTip text={info} />}
         {sub && (
           <span className="ml-auto text-xs font-medium text-muted-foreground num">{sub}</span>
         )}
@@ -44,8 +51,10 @@ export default function Dashboard() {
   const { theme, toggle } = useTheme();
   const [topic, setTopic] = useState("climate_change");
   const [timespan, setTimespan] = useState("1d");
+  const [page, setPage] = useState(1);
 
-  const articles = useArticles(topic, timespan, 60);
+  // 拉更多文章（用于词云/实体/媒体排行统计更稳健）
+  const articles = useArticles(topic, timespan, 250);
   const volume = useVolume(topic, timespan);
   const tone = useTone(topic, timespan);
   const country = useCountry(topic, timespan);
@@ -54,26 +63,65 @@ export default function Dashboard() {
   const toneData = tone.data?.timeline?.[0]?.data ?? [];
   const arts: Article[] = articles.data?.articles ?? [];
 
+  // 切换议题/时间窗时回到第一页
+  useEffect(() => setPage(1), [topic, timespan]);
+
+  // ---- 国家聚合：FIPS 代码 -> 中文名 + 地图英文名 ----
   const countrySeries = country.data?.timeline ?? [];
   const countryAgg = useMemo(() => {
     return countrySeries
-      .map((s) => ({ country: s.series, value: avg(s.data) }))
-      .filter((d) => d.value > 0)
+      .map((s) => ({
+        code: s.series,
+        zh: fipsToZh(s.series),
+        value: avg(s.data), // 绝对篇数
+      }))
+      .filter((d) => d.value > 0 && d.code)
       .sort((a, b) => b.value - a.value);
   }, [countrySeries]);
-  const countryMap = useMemo(
-    () => Object.fromEntries(countryAgg.map((d) => [d.country, d.value])),
+
+  // 地图：key=地图英文国名, value=篇数
+  const countryMap = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const d of countryAgg) {
+      const mapName = fipsToMapName(d.code);
+      if (mapName) m[mapName] = (m[mapName] ?? 0) + d.value;
+    }
+    return m;
+  }, [countryAgg]);
+  // 地图英文名 -> 中文名（悬浮提示）
+  const zhNames = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const d of countryAgg) {
+      const mapName = fipsToMapName(d.code);
+      if (mapName) m[mapName] = d.zh;
+    }
+    return m;
+  }, [countryAgg]);
+
+  const totalCountryArts = useMemo(
+    () => countryAgg.reduce((s, d) => s + d.value, 0),
     [countryAgg],
   );
 
-  // KPI values + simple trend deltas
+  // ---- 派生统计：媒体排行 / 词云 / 实体 ----
+  const outletRank = useMemo(() => buildOutletRanking(arts, 12), [arts]);
+  const wordCloud = useMemo(() => buildWordCloud(arts, 55), [arts]);
+  const entities = useMemo(() => buildEntities(arts, 18), [arts]);
+
+  // ---- 报道流分页 ----
+  const pageCount = Math.max(1, Math.ceil(arts.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount);
+  const pageArts = arts.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  // ---- KPI 值 ----
   const latestVol = volData.at(-1)?.value ?? 0;
   const prevVol = volData.at(-2)?.value ?? latestVol;
   const volDelta = latestVol - prevVol;
   const avgTone = avg(toneData);
-  const topCountry = countryAgg[0]?.country ?? "—";
-  const langCount = new Set(arts.map((a) => a.language)).size;
+  const topCountry = countryAgg[0]?.zh ?? "—";
+  const langCount = new Set(arts.map((a) => a.language).filter(Boolean)).size;
   const activeTopic = TOPICS.find((t) => t.key === topic);
+  const timespanLabel = TIMESPANS.find((t) => t.value === timespan)?.label ?? timespan;
 
   const loadingAny = volume.isLoading || tone.isLoading || articles.isLoading;
   const isRate = (e: unknown) =>
@@ -171,41 +219,53 @@ export default function Dashboard() {
         {rateLimited && (
           <div className="flex items-center gap-2 rounded-xl border border-chart-4/40 bg-chart-4/10 px-4 py-2.5 text-sm">
             <AlertTriangle className="size-4 shrink-0 text-chart-4" />
-            GDELT 接口短暂限流，系统正在自动重试，数据将在入库后自动刷新。
+            数据接口短暂限流，系统正在自动重试，数据将在入库后自动刷新。
           </div>
         )}
 
         {/* KPI row */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <Kpi
-            icon={TrendingUp} label="当前报道强度" value={`${latestVol.toFixed(2)}%`}
-            hint="占全球新闻比例" accent="chart-1" delta={volDelta}
+            icon={Newspaper} label="报道总量" value={`${arts.length}`}
+            unit="篇"
+            hint={`${timespanLabel} · ${activeTopic?.label ?? ""}`} accent="chart-1"
+            info={`所选议题与时间窗内入库的文章绝对数量（去重后按 URL 计）。当前抓取上限为每议题 250 篇。`}
+          />
+          <Kpi
+            icon={TrendingUp} label="报道强度" value={`${latestVol.toFixed(2)}%`}
+            hint="占全球新闻比例" accent="chart-2" delta={volDelta}
+            info={`GDELT TimelineVol 指标：该议题报道量占同时段全球所有监测新闻的百分比，反映「相对热度」。箭头为相对上一时间桶的变化。`}
           />
           <Kpi
             icon={Smile} label="平均情感倾向" value={avgTone.toFixed(2)}
             hint={avgTone >= 0 ? "整体偏正面" : "整体偏负面"}
             accent={avgTone >= 0 ? "chart-3" : "chart-5"}
+            info={`GDELT V1.5 Tone 的时段均值：正值偏正面、负值偏负面，0 为中性。基于文章正负情感词比例计算，范围约 -10 ~ +10。`}
           />
           <Kpi
-            icon={Globe2} label="报道最多地区" value={topCountry}
-            hint="按来源国家" accent="chart-2"
-          />
-          <Kpi
-            icon={Languages} label="覆盖语言数" value={String(langCount)}
-            hint="最新文章样本" accent="chart-6"
+            icon={Globe2} label="报道最多的报道国" value={topCountry}
+            hint="发布媒体所在国" accent="chart-6"
+            info={`报道国 = 发布该新闻的媒体所在国家（GDELT sourcecountry，FIPS 代码已转中文）。注意：这不是新闻「事件发生地」，而是「谁在报道」。`}
           />
         </div>
 
         {/* Trend charts */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <Panel icon={Activity} title="报道量趋势" sub="% of global coverage" className="lg:col-span-2">
+          <Panel
+            icon={Activity} title="报道量趋势" sub="% of global coverage"
+            className="lg:col-span-2"
+            info="折线为该议题报道量占全球新闻的百分比随时间变化（GDELT TimelineVol）。反映相对热度走势，而非绝对篇数。"
+          >
             <div className="h-64 p-4">
               {volume.isLoading ? <ChartSkeleton /> :
                 volData.length === 0 ? <EmptyChart label="暂无趋势数据" /> :
                 <VolumeChart data={volData} />}
             </div>
           </Panel>
-          <Panel icon={Smile} title="情感趋势" sub="avg tone">
+          <Panel
+            icon={Smile} title="情感趋势" sub="avg tone"
+            info="每个时间桶内所有相关报道的平均情感值（GDELT Tone）随时间变化。0 线以上偏正面，以下偏负面。"
+          >
             <div className="h-64 p-4">
               {tone.isLoading ? <ChartSkeleton /> :
                 toneData.length === 0 ? <EmptyChart label="暂无情感数据" /> :
@@ -216,22 +276,67 @@ export default function Dashboard() {
 
         {/* Map + ranking */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <Panel icon={MapPin} title="全球报道热力图" sub="按来源国家" className="lg:col-span-2">
+          <Panel
+            icon={MapPin} title="全球报道热力图" sub={`报道国 · 共 ${totalCountryArts} 篇`}
+            className="lg:col-span-2"
+            info="按「报道国」（发布新闻的媒体所在国）的报道篇数着色：颜色越偏橙红，该国媒体在此议题上的报道越多。代表「哪些国家的媒体在关注」，非事件发生地。悬浮可看具体篇数。"
+          >
             <div className="h-[360px] p-2">
-              {country.isLoading ? <ChartSkeleton /> : <WorldMap byCountry={countryMap} />}
+              {country.isLoading ? <ChartSkeleton /> :
+                Object.keys(countryMap).length === 0 ? <EmptyChart label="暂无地区数据" /> :
+                <WorldMap byCountry={countryMap} zhNames={zhNames} />}
             </div>
           </Panel>
-          <Panel icon={Globe2} title="国家 / 地区排行" sub="Top 12">
+          <Panel
+            icon={Globe2} title="报道国排行" sub="Top 12"
+            info="发布报道最多的国家（按媒体所在国 sourcecountry 统计的绝对篇数）。"
+          >
             <div className="h-[360px] p-3">
               {country.isLoading ? <ChartSkeleton /> :
                 countryAgg.length === 0 ? <EmptyChart label="暂无地区数据" /> :
-                <CountryBar data={countryAgg.slice(0, 12)} />}
+                <CountryBar data={countryAgg.slice(0, 12).map((d) => ({ country: d.zh, value: d.value }))} unit="篇" />}
             </div>
           </Panel>
         </div>
 
-        {/* Article feed */}
-        <Panel icon={Newspaper} title="最新报道流" sub={`${arts.length} 篇 · 实时`}>
+        {/* Outlet ranking + Entities */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <Panel
+            icon={Building2} title="媒体来源排行" sub={`Top ${outletRank.length}`}
+            info="按发布该议题报道的媒体（域名）统计的文章数量排行，反映哪些媒体最活跃。基于当前样本（最多 250 篇）。"
+          >
+            <div className="h-[320px] p-4">
+              {articles.isLoading ? <ChartSkeleton /> :
+                <HBarRank items={outletRank.map((o) => ({ label: o.label, count: o.count }))} unit="篇" />}
+            </div>
+          </Panel>
+          <Panel
+            icon={Tags} title="高频实体提及" sub="标题 / 导语"
+            info="从报道标题与导语中近似提取的命名实体（机构、人物、地点、专有名词），按被多少篇报道提及排序。基于大写词组启发式识别，至少 2 篇提及才计入。"
+          >
+            <div className="h-[320px] p-4">
+              {articles.isLoading ? <ChartSkeleton /> :
+                <HBarRank items={entities.map((e) => ({ label: e.text, count: e.count }))} unit="篇" />}
+            </div>
+          </Panel>
+        </div>
+
+        {/* Word cloud */}
+        <Panel
+          icon={Cloud} title="报道关键词词云" sub="标题加权 ×2"
+          info="对标题（权重 2）与导语（权重 1）分词后去停用词的高频词。字号越大、颜色越深表示出现越多。中英文混合统计。"
+        >
+          <div className="h-[280px] p-3">
+            {articles.isLoading ? <ChartSkeleton /> : <WordCloud terms={wordCloud} />}
+          </div>
+        </Panel>
+
+        {/* Article feed (paginated) */}
+        <Panel
+          icon={Newspaper} title="最新报道流"
+          sub={`共 ${arts.length} 篇 · 第 ${safePage}/${pageCount} 页`}
+          info="所选议题与时间窗内的全部入库报道，按发布时间倒序。每页 12 篇，使用下方翻页浏览。"
+        >
           <div className="p-4">
             {articles.isLoading ? (
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -249,11 +354,22 @@ export default function Dashboard() {
                 </p>
               </div>
             ) : (
-              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {arts.map((a, i) => (
-                  <ArticleCard key={a.url + i} a={a} />
-                ))}
-              </div>
+              <>
+                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {pageArts.map((a, i) => (
+                    <ArticleCard key={a.url + i} a={a} />
+                  ))}
+                </div>
+                <Pager
+                  page={safePage}
+                  pageCount={pageCount}
+                  onChange={(p) => {
+                    setPage(p);
+                    if (typeof window !== "undefined")
+                      window.scrollTo({ top: window.scrollY, behavior: "auto" });
+                  }}
+                />
+              </>
             )}
           </div>
         </Panel>
@@ -263,7 +379,7 @@ export default function Dashboard() {
           <a href="https://www.gdeltproject.org/" target="_blank" rel="noreferrer" className="text-primary underline-offset-2 hover:underline">
             The GDELT Project
           </a>
-          {" · "}DOC 2.0 实时 API（每 15 分钟入库 · 覆盖最近 3 个月）· 数据持久化于 Supabase。
+          {" · "}GKG / DOC 2.0（每 15 分钟入库 · 覆盖最近 3 个月）· 数据持久化于 Supabase。
         </footer>
       </main>
     </div>
@@ -271,10 +387,10 @@ export default function Dashboard() {
 }
 
 function Kpi({
-  icon: Icon, label, value, hint, accent, delta,
+  icon: Icon, label, value, unit, hint, accent, delta, info,
 }: {
-  icon: any; label: string; value: string; hint: string;
-  accent: string; delta?: number;
+  icon: any; label: string; value: string; unit?: string; hint: string;
+  accent: string; delta?: number; info?: string;
 }) {
   const showDelta = typeof delta === "number" && Math.abs(delta) > 0.0001;
   const up = (delta ?? 0) > 0;
@@ -291,10 +407,12 @@ function Kpi({
           <Icon className="size-3.5" />
         </span>
         {label}
+        {info && <InfoTip text={info} />}
       </div>
       <div className="mt-2.5 flex items-end gap-2">
         <div className="font-display text-2xl font-bold leading-none num truncate" data-testid={`kpi-${label}`}>
           {value}
+          {unit && <span className="ml-1 text-sm font-semibold text-muted-foreground">{unit}</span>}
         </div>
         {showDelta && (
           <span className={`mb-0.5 inline-flex items-center gap-0.5 text-xs font-semibold num ${up ? "text-chart-3" : "text-chart-5"}`}>
@@ -309,6 +427,7 @@ function Kpi({
 }
 
 function ArticleCard({ a }: { a: Article }) {
+  const img = a.socialimage || a.top_image || "";
   return (
     <a
       href={a.url}
@@ -317,10 +436,10 @@ function ArticleCard({ a }: { a: Article }) {
       data-testid="card-article"
       className="group flex flex-col overflow-hidden rounded-xl border border-card-border bg-card transition-all hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-md"
     >
-      {a.socialimage ? (
+      {img ? (
         <div className="relative h-28 overflow-hidden bg-muted">
           <img
-            src={a.socialimage}
+            src={img}
             alt=""
             loading="lazy"
             className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
@@ -335,12 +454,12 @@ function ArticleCard({ a }: { a: Article }) {
       )}
       <div className="flex flex-1 flex-col gap-2 p-3.5">
         <p className="line-clamp-3 text-sm font-medium leading-snug transition-colors group-hover:text-primary">
-          {a.title}
+          {decodeEntities(a.title)}
         </p>
         <div className="mt-auto flex items-center gap-1.5 text-xs text-muted-foreground">
-          <span className="max-w-[7rem] truncate font-medium">{a.domain}</span>
+          <span className="max-w-[7rem] truncate font-medium">{a.outlet || a.domain}</span>
           <span className="text-card-border">·</span>
-          <span className="max-w-[5rem] truncate">{a.sourcecountry}</span>
+          <span className="max-w-[5rem] truncate">{fipsToZh(a.sourcecountry)}</span>
           <ExternalLink className="ml-auto size-3 opacity-0 transition-opacity group-hover:opacity-100" />
         </div>
         <div className="num text-xs text-muted-foreground">{relTime(a.seendate)}</div>

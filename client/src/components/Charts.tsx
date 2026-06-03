@@ -87,7 +87,7 @@ export function ToneChart({ data }: { data: TimelinePoint[] }) {
   );
 }
 
-export function CountryBar({ data }: { data: { country: string; value: number }[] }) {
+export function CountryBar({ data, unit = "" }: { data: { country: string; value: number }[]; unit?: string }) {
   return (
     <ResponsiveContainer width="100%" height="100%">
       <BarChart data={data} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 4 }}>
@@ -103,7 +103,7 @@ export function CountryBar({ data }: { data: { country: string; value: number }[
         />
         <Tooltip
           contentStyle={tooltipStyle()}
-          formatter={(v: number) => [`${v.toFixed(1)}%`, "报道占比"]}
+          formatter={(v: number) => [`${v} ${unit}`.trim(), "报道篇数"]}
           cursor={{ fill: "hsl(var(--muted))" }}
         />
         <Bar dataKey="value" radius={[0, 5, 5, 0]} maxBarSize={22}>

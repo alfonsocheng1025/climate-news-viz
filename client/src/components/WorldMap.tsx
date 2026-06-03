@@ -5,39 +5,30 @@ import { scaleSequential } from "d3-scale";
 const GEO_URL =
   "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json";
 
-// GDELT sourcecountry 名称 -> 世界地图国家名 的常见映射
-const NAME_FIX: Record<string, string> = {
-  "United States": "United States of America",
-  "Czech Republic": "Czechia",
-  "South Korea": "South Korea",
-  "Tanzania": "United Republic of Tanzania",
-  "Serbia": "Republic of Serbia",
-  "Bosnia and Herzegovina": "Bosnia and Herz.",
-};
-
+/**
+ * 热力图：底色按「报道国」（即发布该新闻的媒体所在国）的报道篇数着色。
+ * 注意：byCountry 的 key 必须是「世界地图英文国名」(world-atlas properties.name)，
+ * 由上层用 fipsToMapName() 把 GDELT 的 FIPS 代码翻译后传入。
+ * value 为该国报道的绝对篇数。zhNames 提供英文国名 -> 中文名 用于悬浮提示。
+ */
 export function WorldMap({
   byCountry,
+  zhNames = {},
 }: {
   byCountry: Record<string, number>;
+  zhNames?: Record<string, string>;
 }) {
   const max = useMemo(
     () => Math.max(1, ...Object.values(byCountry)),
     [byCountry],
   );
-  // 报道强度热力：低->主色浅，高->橙红（呼应「升温」）
+
+  // 报道强度热力：低->主色浅青，高->橙红（呼应「升温」）
   const color = scaleSequential((t: number) => {
     const hue = 184 - t * 178; // teal(184) -> red(6)
-    const light = 55 - t * 12;
-    return `hsl(${hue}, 70%, ${light}%)`;
+    const light = 56 - t * 16;
+    return `hsl(${hue}, 72%, ${light}%)`;
   }).domain([0, 1]);
-
-  const lookup = useMemo(() => {
-    const m: Record<string, number> = {};
-    for (const [k, v] of Object.entries(byCountry)) {
-      m[NAME_FIX[k] ?? k] = v;
-    }
-    return m;
-  }, [byCountry]);
 
   return (
     <ComposableMap
@@ -48,12 +39,11 @@ export function WorldMap({
       <Geographies geography={GEO_URL}>
         {({ geographies }) =>
           geographies.map((geo) => {
-            const name = geo.properties.name;
-            const val = lookup[name] ?? 0;
+            const name = geo.properties.name as string;
+            const val = byCountry[name] ?? 0;
             const fill =
-              val > 0
-                ? color(val / max)
-                : "hsl(var(--secondary))";
+              val > 0 ? color(val / max) : "hsl(var(--secondary))";
+            const zh = zhNames[name] ?? name;
             return (
               <Geography
                 key={geo.rsmKey}
@@ -67,7 +57,7 @@ export function WorldMap({
                   pressed: { outline: "none" },
                 }}
               >
-                <title>{`${name}: ${val.toFixed(1)}%`}</title>
+                <title>{`${zh}：${val} 篇`}</title>
               </Geography>
             );
           })
