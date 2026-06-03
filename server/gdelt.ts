@@ -162,6 +162,11 @@ export interface ClimateDataSource {
   timelineCountry(topic: string, timespan: string): Promise<any>;
   timelineLang(topic: string, timespan: string): Promise<any>;
   geo(topic: string, timespan: string): Promise<any>;
+  // 全量聚合（不受单次读取上限影响）
+  totalCount(topic: string, timespan: string): Promise<any>;
+  outlets(topic: string, timespan: string, limit: number): Promise<any>;
+  languages(topic: string, timespan: string): Promise<any>;
+  search(topic: string, timespan: string, q: string, limit: number, offset: number): Promise<any>;
 }
 
 function resolveQuery(topic: string): string {
@@ -201,6 +206,20 @@ class GdeltLiveSource implements ClimateDataSource {
     return cachedFetch(
       buildDocUrl({ query: resolveQuery(topic), mode: "TimelineLang", timespan, format: "json" }),
     );
+  }
+  // 方案 B（实时代理）下的全量聚合：GDELT 无对应直出接口，返回占位。
+  // 仅在回退到 GdeltLiveSource 时生效；当前生产走方案 A。
+  async totalCount(_topic: string, _timespan: string) {
+    return { total: 0 };
+  }
+  async outlets(_topic: string, _timespan: string, _limit: number) {
+    return { outlets: [] };
+  }
+  async languages(_topic: string, _timespan: string) {
+    return { languages: [] };
+  }
+  async search(_topic: string, _timespan: string, _q: string, _limit: number, _offset: number) {
+    return { articles: [], total: 0 };
   }
   geo(topic: string, timespan: string) {
     const url = `${GEO_API}?${encodeParams({
@@ -303,6 +322,59 @@ class SupabaseSource implements ClimateDataSource {
   async timelineLang(topic: string, timespan: string) {
     // 语言维度暂从 articles 派生（前端主用 articles 统计语种数）
     return { timeline: [] };
+  }
+
+  // 全量报道总量（不受读取上限影响）
+  async totalCount(topic: string, timespan: string) {
+    const total = await rpc<number>("climate_total_count", {
+      p_topic: topic,
+      p_hours: timespanToHours(timespan),
+    });
+    return { total: Number(total) || 0 };
+  }
+
+  // 全量媒体（域名）排行
+  async outlets(topic: string, timespan: string, limit: number) {
+    const data = await rpc<any[]>("climate_outlets", {
+      p_topic: topic,
+      p_hours: timespanToHours(timespan),
+      p_limit: limit,
+    });
+    return {
+      outlets: (data ?? []).map((r: any) => ({
+        label: r.outlet || r.domain,
+        domain: r.domain,
+        count: Number(r.cnt),
+      })),
+    };
+  }
+
+  // 全量语言分布
+  async languages(topic: string, timespan: string) {
+    const data = await rpc<any[]>("climate_languages", {
+      p_topic: topic,
+      p_hours: timespanToHours(timespan),
+    });
+    return {
+      languages: (data ?? []).map((r: any) => ({
+        code: r.language,
+        count: Number(r.cnt),
+      })),
+    };
+  }
+
+  // 全量搜索 + 分页（空关键词 = 全部报道流）
+  async search(topic: string, timespan: string, q: string, limit: number, offset: number) {
+    const data = await rpc<any[]>("climate_search", {
+      p_topic: topic,
+      p_hours: timespanToHours(timespan),
+      p_q: q || "",
+      p_limit: limit,
+      p_offset: offset,
+    });
+    const rows = data ?? [];
+    const total = rows.length ? Number(rows[0].total) : 0;
+    return { articles: rows.map((r: any) => r.rows), total };
   }
 
   async geo(topic: string, timespan: string) {

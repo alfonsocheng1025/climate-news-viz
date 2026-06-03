@@ -3,19 +3,27 @@ import {
   Activity, Globe2, Newspaper, Languages, Moon, Sun, RefreshCw,
   TrendingUp, Smile, MapPin, ExternalLink, AlertTriangle, Leaf,
   ArrowUpRight, ArrowDownRight, Minus, Building2, Cloud, Tags,
-  Heart, Database, Scale, Clock,
+  Heart, Database, Scale, Clock, Search, X,
 } from "lucide-react";
 import { useTheme } from "@/components/ThemeProvider";
 import {
   TOPICS, useArticles, useVolume, useTone, useCountry,
+  useTotal, useOutlets, useLanguages, useSearch, langZh,
   TIMESPANS, relTime, Article, TimelinePoint,
 } from "@/lib/climate";
 import { fipsToZh, fipsToMapName } from "@/lib/countries";
-import { buildWordCloud, buildEntities, buildOutletRanking, decodeEntities } from "@/lib/textmine";
-import { VolumeChart, ToneChart, CountryBar } from "@/components/Charts";
+import { buildWordCloud, buildEntities, decodeEntities } from "@/lib/textmine";
+import { VolumeChart, ToneChart, CountryBar, bucketByGranularity, Granularity } from "@/components/Charts";
 import { WorldMap } from "@/components/WorldMap";
 import { InfoTip, WordCloud, HBarRank, Pager } from "@/components/Extras";
 import { Skeleton } from "@/components/ui/skeleton";
+
+const GRANS: { value: Granularity; label: string }[] = [
+  { value: "hour", label: "时" },
+  { value: "day", label: "日" },
+  { value: "month", label: "月" },
+  { value: "year", label: "年" },
+];
 
 function avg(data: TimelinePoint[]) {
   if (!data.length) return 0;
@@ -53,16 +61,43 @@ export default function Dashboard() {
   const [topic, setTopic] = useState("climate_change");
   const [timespan, setTimespan] = useState("1d");
   const [page, setPage] = useState(1);
+  const [gran, setGran] = useState<Granularity>("hour");
+  // 搜索：q 为输入框实时值，query 为防抖后用于请求的值
+  const [q, setQ] = useState("");
+  const [query, setQuery] = useState("");
 
-  // 拉更多文章（用于词云/实体/媒体排行统计更稳健）
+  // 仅用于词云 / 高频实体统计的样本（最近 1000 篇）
   const articles = useArticles(topic, timespan, 1000);
   const volume = useVolume(topic, timespan);
   const tone = useTone(topic, timespan);
   const country = useCountry(topic, timespan);
+  // 全量聚合（不受单次读取上限影响）
+  const total = useTotal(topic, timespan);
+  const outlets = useOutlets(topic, timespan, 12);
+  const languages = useLanguages(topic, timespan);
+  // 报道流：服务端搜索 + 分页（全量；空关键词 = 全部报道流）
+  const feed = useSearch(topic, timespan, query, PAGE_SIZE, (page - 1) * PAGE_SIZE);
 
   const volData = volume.data?.timeline?.[0]?.data ?? [];
   const toneData = tone.data?.timeline?.[0]?.data ?? [];
-  const arts: Article[] = articles.data?.articles ?? [];
+  // 按粒度聚合的报道量趋势
+  const volDataG = useMemo(() => bucketByGranularity(volData, gran), [volData, gran]);
+  const sampleArts: Article[] = articles.data?.articles ?? [];
+
+  const totalCount = total.data?.total ?? 0;
+  const outletItems = outlets.data?.outlets ?? [];
+  const langItems = languages.data?.languages ?? [];
+  const feedArts: Article[] = feed.data?.articles ?? [];
+  const feedTotal = feed.data?.total ?? 0;
+
+  // 防抖：输入停顿 350ms 后才发起搜索，并回到第一页
+  useEffect(() => {
+    const id = setTimeout(() => {
+      setQuery(q.trim());
+      setPage(1);
+    }, 350);
+    return () => clearTimeout(id);
+  }, [q]);
 
   // 切换议题/时间窗时回到第一页
   useEffect(() => setPage(1), [topic, timespan]);
@@ -118,15 +153,13 @@ export default function Dashboard() {
     [countryAgg],
   );
 
-  // ---- 派生统计：媒体排行 / 词云 / 实体 ----
-  const outletRank = useMemo(() => buildOutletRanking(arts, 12), [arts]);
-  const wordCloud = useMemo(() => buildWordCloud(arts, 55), [arts]);
-  const entities = useMemo(() => buildEntities(arts, 18), [arts]);
+  // ---- 派生统计：词云 / 实体（基于最近 1000 篇样本）----
+  const wordCloud = useMemo(() => buildWordCloud(sampleArts, 55), [sampleArts]);
+  const entities = useMemo(() => buildEntities(sampleArts, 18), [sampleArts]);
 
-  // ---- 报道流分页 ----
-  const pageCount = Math.max(1, Math.ceil(arts.length / PAGE_SIZE));
+  // ---- 报道流分页（服务端全量）----
+  const pageCount = Math.max(1, Math.ceil(feedTotal / PAGE_SIZE));
   const safePage = Math.min(page, pageCount);
-  const pageArts = arts.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
   // ---- KPI 值 ----
   const latestVol = volData.at(-1)?.value ?? 0;
@@ -134,11 +167,13 @@ export default function Dashboard() {
   const volDelta = latestVol - prevVol;
   const avgTone = avg(toneData);
   const topCountry = countryAgg[0]?.zh ?? "—";
-  const langCount = new Set(arts.map((a) => a.language).filter(Boolean)).size;
+  const langCount = langItems.filter((l) => l.code !== "unknown").length;
   const activeTopic = TOPICS.find((t) => t.key === topic);
   const timespanLabel = TIMESPANS.find((t) => t.value === timespan)?.label ?? timespan;
 
-  const loadingAny = volume.isLoading || tone.isLoading || articles.isLoading;
+  const loadingAny =
+    volume.isLoading || tone.isLoading || articles.isLoading ||
+    total.isLoading || outlets.isLoading || languages.isLoading || feed.isLoading;
   const isRate = (e: unknown) =>
     (e as any)?.message?.includes("429") ||
     (e as any)?.message?.includes("rate_limited");
@@ -147,6 +182,7 @@ export default function Dashboard() {
 
   const refetchAll = () => {
     volume.refetch(); tone.refetch(); country.refetch(); articles.refetch();
+    total.refetch(); outlets.refetch(); languages.refetch(); feed.refetch();
   };
 
   return (
@@ -248,10 +284,10 @@ export default function Dashboard() {
         {/* KPI row */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <Kpi
-            icon={Newspaper} label="报道总量" value={`${arts.length}`}
+            icon={Newspaper} label="报道总量" value={`${totalCount}`}
             unit="篇"
             hint={`${timespanLabel} · ${activeTopic?.label ?? ""}`} accent="chart-1"
-            info={`所选议题与时间窗内入库的文章绝对数量（去重后按 URL 计）。数据库每 15 分钟持续累积，无上限；此处为单次展示读取，上限 1000 篇。`}
+            info={`取数范围：全部入库报道。所选议题与时间窗内入库的文章绝对数量（去重后按 URL 计），由数据库服务端直接计数，不受单次读取条数限制。`}
           />
           <Kpi
             icon={TrendingUp} label="报道强度" value={`${latestVol.toFixed(2)}%`}
@@ -267,7 +303,7 @@ export default function Dashboard() {
           <Kpi
             icon={Globe2} label="报道最多的报道国" value={topCountry}
             hint="发布媒体所在国" accent="chart-6"
-            info={`报道国 = 发布该新闻的媒体所在国家（GDELT sourcecountry，FIPS 代码已转中文）。注意：这不是新闻「事件发生地」，而是「谁在报道」。`}
+            info={`取数范围：全部入库报道（服务端聚合）。报道国 = 发布该新闻的媒体所在国家（GDELT sourcecountry，FIPS 代码已转中文）。注意：这不是新闻「事件发生地」，而是「谁在报道」。`}
           />
         </div>
 
@@ -276,12 +312,31 @@ export default function Dashboard() {
           <Panel
             icon={Activity} title="报道量趋势" sub="% of global coverage"
             className="lg:col-span-2"
-            info="折线为该议题报道量占全球新闻的百分比随时间变化（GDELT TimelineVol）。反映相对热度走势，而非绝对篇数。"
+            info="折线为该议题报道量占全球新闻的百分比随时间变化（GDELT TimelineVol）。反映相对热度走势，而非绝对篇数。可切换 时 / 日 / 月 / 年 粒度，并拖动下方滑块缩放时间范围。"
           >
-            <div className="h-64 p-4">
+            <div className="flex items-center justify-end gap-1 px-4 pt-3">
+              <span className="mr-1 text-[11px] text-muted-foreground">时间粒度</span>
+              <div className="flex gap-0.5 rounded-full border border-border bg-card p-0.5">
+                {GRANS.map((g) => (
+                  <button
+                    key={g.value}
+                    onClick={() => setGran(g.value)}
+                    data-testid={`gran-${g.value}`}
+                    className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition-all ${
+                      gran === g.value
+                        ? "bg-secondary text-secondary-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {g.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="h-60 px-4 pb-4 pt-1">
               {volume.isLoading ? <ChartSkeleton /> :
-                volData.length === 0 ? <EmptyChart label="暂无趋势数据" /> :
-                <VolumeChart data={volData} />}
+                volDataG.length === 0 ? <EmptyChart label="暂无趋势数据" /> :
+                <VolumeChart data={volDataG} granularity={gran} showBrush />}
             </div>
           </Panel>
           <Panel
@@ -324,64 +379,102 @@ export default function Dashboard() {
           </Panel>
         </div>
 
-        {/* Outlet ranking + Entities */}
+        {/* Outlet ranking + Language distribution */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <Panel
-            icon={Building2} title="媒体来源排行" sub={`Top ${outletRank.length}`}
-            info="按发布该议题报道的媒体（域名）统计的文章数量排行，反映哪些媒体最活跃。基于当前样本（单次读取上限 1000 篇）。"
+            icon={Building2} title="媒体来源排行" sub={`Top ${outletItems.length}`}
+            info="取数范围：全部入库报道（服务端聚合）。按发布该议题报道的媒体（域名）统计的文章数量排行，反映哪些媒体最活跃。"
           >
             <div className="h-[320px] p-4">
-              {articles.isLoading ? <ChartSkeleton /> :
-                <HBarRank items={outletRank.map((o) => ({ label: o.label, count: o.count }))} unit="篇" />}
+              {outlets.isLoading ? <ChartSkeleton /> :
+                outletItems.length === 0 ? <EmptyChart label="暂无媒体数据" /> :
+                <HBarRank items={outletItems.map((o) => ({ label: o.label, count: o.count }))} unit="篇" />}
             </div>
           </Panel>
           <Panel
-            icon={Tags} title="高频实体提及" sub="标题 / 导语"
-            info="从报道标题与导语中近似提取的命名实体（机构、人物、地点、专有名词），按被多少篇报道提及排序。基于大写词组启发式识别，至少 2 篇提及才计入。"
+            icon={Languages} title="报道语言分布" sub={`${langCount} 种语言`}
+            info="取数范围：全部入库报道（服务端聚合）。语言来自 GDELT 原文语言标记（翻译报道取原始语种），部分早期历史报道无语言标记记为「未知」。"
           >
             <div className="h-[320px] p-4">
-              {articles.isLoading ? <ChartSkeleton /> :
-                <HBarRank items={entities.map((e) => ({ label: e.text, count: e.count }))} unit="篇" />}
+              {languages.isLoading ? <ChartSkeleton /> :
+                langItems.length === 0 ? <EmptyChart label="暂无语言数据" /> :
+                <HBarRank items={langItems.map((l) => ({ label: langZh(l.code), count: l.count }))} unit="篇" />}
             </div>
           </Panel>
         </div>
 
+        {/* Entities + Word cloud */}
+        <Panel
+          icon={Tags} title="高频实体提及" sub="标题 / 导语"
+          info="取数范围：最近 1000 篇报道样本。从报道标题与导语中近似提取的命名实体（机构、人物、地点、专有名词），按被多少篇报道提及排序。至少 2 篇提及才计入。"
+        >
+          <div className="h-[320px] p-4">
+            {articles.isLoading ? <ChartSkeleton /> :
+              <HBarRank items={entities.map((e) => ({ label: e.text, count: e.count }))} unit="篇" />}
+          </div>
+        </Panel>
+
         {/* Word cloud */}
         <Panel
           icon={Cloud} title="报道关键词词云" sub="标题加权 ×2"
-          info="对标题（权重 2）与导语（权重 1）分词后去停用词的高频词。字号越大、颜色越深表示出现越多。中英文混合统计。"
+          info="取数范围：最近 1000 篇报道样本。对标题（权重 2）与导语（权重 1）分词后去停用词的高频词。字号越大、颜色越深表示出现越多。中英文混合统计。"
         >
           <div className="h-[280px] p-3">
             {articles.isLoading ? <ChartSkeleton /> : <WordCloud terms={wordCloud} />}
           </div>
         </Panel>
 
-        {/* Article feed (paginated) */}
+        {/* Article feed (server-side search + pagination) */}
         <Panel
           icon={Newspaper} title="最新报道流"
-          sub={`共 ${arts.length} 篇 · 第 ${safePage}/${pageCount} 页`}
-          info="所选议题与时间窗内的全部入库报道，按发布时间倒序。每页 12 篇，使用下方翻页浏览。"
+          sub={`共 ${feedTotal} 篇 · 第 ${safePage}/${pageCount} 页`}
+          info="取数范围：全部入库报道（服务端搜索 + 分页）。按发布时间倒序，每页 12 篇。可在上方输入关键词检索标题 / 导语 / 正文 / 媒体。"
         >
           <div className="p-4">
-            {articles.isLoading ? (
+            {/* 搜索框 */}
+            <div className="relative mb-4">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <input
+                type="text"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                data-testid="input-search"
+                placeholder="搜索报道关键词（标题、导语、正文、媒体）…"
+                className="w-full rounded-xl border border-border bg-card py-2.5 pl-10 pr-10 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-primary/50"
+              />
+              {q && (
+                <button
+                  onClick={() => setQ("")}
+                  data-testid="button-search-clear"
+                  aria-label="清除搜索"
+                  className="absolute right-2.5 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted-foreground hover-elevate"
+                >
+                  <X className="size-4" />
+                </button>
+              )}
+            </div>
+
+            {feed.isLoading ? (
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {Array.from({ length: 6 }).map((_, i) => (
                   <Skeleton key={i} className="h-44 rounded-xl" />
                 ))}
               </div>
-            ) : arts.length === 0 ? (
+            ) : feedTotal === 0 ? (
               <div className="flex flex-col items-center gap-2 py-16 text-center">
                 <span className="grid size-12 place-items-center rounded-2xl bg-muted text-muted-foreground">
                   <Newspaper className="size-6 opacity-50" />
                 </span>
                 <p className="text-sm text-muted-foreground">
-                  当前时间窗内暂无 {activeTopic?.label ?? ""} 报道，数据将在入库后自动出现。
+                  {query
+                    ? `未找到包含「${query}」的 ${activeTopic?.label ?? ""} 报道，请换个关键词试试。`
+                    : `当前时间窗内暂无 ${activeTopic?.label ?? ""} 报道，数据将在入库后自动出现。`}
                 </p>
               </div>
             ) : (
               <>
                 <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {pageArts.map((a, i) => (
+                  {feedArts.map((a, i) => (
                     <ArticleCard key={a.url + i} a={a} />
                   ))}
                 </div>
@@ -426,12 +519,12 @@ export default function Dashboard() {
               <AckCard
                 icon={Activity}
                 title="DOC 2.0 API"
-                body="GDELT DOC 2.0 文档检索接口提供文章列表与报道量、情感时间线。其单次请求最多返回 250 条，是接口本身的官方上限。"
+                body="GDELT DOC 2.0 文档检索接口提供文章列表与报道量、情感时间线。其单次请求最多返回 250 条，是接口本身的官方上限；我们在入库后以数据库持续累积突破此限制。"
               />
               <AckCard
                 icon={Clock}
-                title="持续累积，并非 250 篇上限"
-                body="数据库每 15 分钟自动入库新报道并长期持续累积，没有总量限制。看板中的「250 / 1000」只是单次请求或前端展示读取的条数上限，用于词云、实体与媒体排行等客户端统计，并不限制底层数据积累。"
+                title="指标取数：全量 vs 样本"
+                body="报道总量、报道国排行、媒体排行、语言分布、报道流搜索等指标均由数据库服务端对「全部入库报道」聚合，不受单次读取条数限制。仅高频实体提及与关键词词云为节省客户端算力，基于最近 1000 篇报道样本统计。底层数据每 15 分钟入库并长期累积，无总量限制。"
               />
               <AckCard
                 icon={Scale}

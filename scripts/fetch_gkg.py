@@ -158,6 +158,25 @@ def build_gkg_raw(fields: list, source_name: str, gkg_file: str) -> dict:
     raw["_gkg_file"] = gkg_file           # 来源批文件名
     return raw
 
+
+_SRCLC_RE = re.compile(r"srclc:([a-z]{3})")
+
+
+def derive_language(fields: list, source_name: str) -> str | None:
+    """从 GKG 行派生原文语言（ISO 639-3）。
+    - english 源：固定为 eng。
+    - translingual 源：从 V2_1TRANSLATIONINFO 的 srclc:XXX 取原文语言代码。
+    """
+    if source_name == "english":
+        return "eng"
+    if source_name == "translingual":
+        idx = GKG_COLUMN_NAMES.index("V2_1TRANSLATIONINFO")
+        info = fields[idx] if idx < len(fields) else ""
+        m = _SRCLC_RE.search(info or "")
+        if m:
+            return m.group(1)
+    return None
+
 _PAGE_TITLE_RE = re.compile(r"<PAGE_TITLE>(.*?)</PAGE_TITLE>", re.S | re.I)
 
 
@@ -333,7 +352,7 @@ def process_csv(csv_text: str, articles_by_url: dict,
                 "url_mobile": None,
                 "socialimage": None,
                 "domain": domain or None,
-                "language": None,
+                "language": derive_language(fields, source_name),
                 "sourcecountry": country,
                 "seendate": iso,
                 "topics": topics,

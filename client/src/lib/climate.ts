@@ -110,6 +110,88 @@ export function useCountry(topic: string, timespan: string) {
   });
 }
 
+/* ------------------------------------------------------------------ */
+/* 全量聚合类 hooks（服务端聚合，不受单次读取上限影响）           */
+/* ------------------------------------------------------------------ */
+
+// 报道总量（全部入库）
+export function useTotal(topic: string, timespan: string) {
+  return useQuery({
+    queryKey: ["/api/total", topic, timespan],
+    queryFn: () => getJson<{ total: number }>(`/api/total${qs(topic, timespan)}`),
+    ...liveOpts,
+  });
+}
+
+export interface OutletItem {
+  label: string;
+  domain: string;
+  count: number;
+}
+// 媒体来源排行（全量）
+export function useOutlets(topic: string, timespan: string, limit = 12) {
+  return useQuery({
+    queryKey: ["/api/outlets", topic, timespan, limit],
+    queryFn: () =>
+      getJson<{ outlets: OutletItem[] }>(
+        `/api/outlets${qs(topic, timespan, { limit: String(limit) })}`,
+      ),
+    ...liveOpts,
+  });
+}
+
+export interface LangItem {
+  code: string;
+  count: number;
+}
+// 语言分布（全量）
+export function useLanguages(topic: string, timespan: string) {
+  return useQuery({
+    queryKey: ["/api/languages", topic, timespan],
+    queryFn: () => getJson<{ languages: LangItem[] }>(`/api/languages${qs(topic, timespan)}`),
+    ...liveOpts,
+  });
+}
+
+// 报道流搜索 + 分页（全量；空关键词 = 全部报道流）
+export function useSearch(
+  topic: string,
+  timespan: string,
+  q: string,
+  limit: number,
+  offset: number,
+) {
+  return useQuery({
+    queryKey: ["/api/search", topic, timespan, q, limit, offset],
+    queryFn: () =>
+      getJson<{ articles: Article[]; total: number }>(
+        `/api/search${qs(topic, timespan, {
+          q,
+          limit: String(limit),
+          offset: String(offset),
+        })}`,
+      ),
+    ...liveOpts,
+    placeholderData: (prev) => prev, // 翻页/输入时保留上一页，避免闪烁
+  });
+}
+
+/* ---- ISO 639-3 语言代码 -> 中文名 ---------------------------------- */
+const LANG_ZH: Record<string, string> = {
+  eng: "英语", zho: "中文", spa: "西班牙语", deu: "德语", fra: "法语",
+  ita: "意大利语", por: "葡萄牙语", rus: "俄语", jpn: "日语", kor: "韩语",
+  ara: "阿拉伯语", ben: "孟加拉语", hin: "印地语", ind: "印尼语", tur: "土耳其语",
+  nld: "荷兰语", pol: "波兰语", swe: "瑞典语", ces: "捷克语", ell: "希腊语",
+  bul: "保加利亚语", hrv: "克罗地亚语", srp: "塞尔维亚语", ukr: "乌克兰语", ron: "罗马尼亚语",
+  cat: "加泰罗尼亚语", lav: "拉脱维亚语", lit: "立陶宛语", sqi: "阿尔巴尼亚语", slk: "斯洛伐克语",
+  fin: "芬兰语", dan: "丹麦语", nor: "挪威语", hun: "匈牙利语", tha: "泰语",
+  vie: "越南语", fas: "波斯语", heb: "希伯来语", urd: "乌尔都语", msa: "马来语",
+  unknown: "未知 / 未标记",
+};
+export function langZh(code: string): string {
+  return LANG_ZH[code] || code.toUpperCase();
+}
+
 // ---- 时间工具 ------------------------------------------------------
 export function parseGdeltDate(s: string): Date {
   if (!s) return new Date(NaN);

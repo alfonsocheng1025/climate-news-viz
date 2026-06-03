@@ -28,6 +28,16 @@ export async function registerRoutes(
     );
   });
 
+  function handleErr(e: any, res: any) {
+    const rate = e?.message === "GDELT_RATE_LIMITED";
+    res.status(rate ? 429 : 502).json({
+      error: rate ? "rate_limited" : "upstream_error",
+      message: rate
+        ? "GDELT 接口限流，请稍候自动重试"
+        : "无法从 GDELT 获取数据",
+    });
+  }
+
   const wrap =
     (fn: (topic: string, timespan: string, max: number) => Promise<any>) =>
     async (req: any, res: any) => {
@@ -38,13 +48,7 @@ export async function registerRoutes(
         const data = await fn(topic, timespan, max);
         res.json(data);
       } catch (e: any) {
-        const rate = e?.message === "GDELT_RATE_LIMITED";
-        res.status(rate ? 429 : 502).json({
-          error: rate ? "rate_limited" : "upstream_error",
-          message: rate
-            ? "GDELT 接口限流，请稍候自动重试"
-            : "无法从 GDELT 获取数据",
-        });
+        handleErr(e, res);
       }
     };
 
@@ -54,6 +58,32 @@ export async function registerRoutes(
   app.get("/api/timeline/country", wrap((t, ts) => dataSource.timelineCountry(t, ts)));
   app.get("/api/timeline/lang", wrap((t, ts) => dataSource.timelineLang(t, ts)));
   app.get("/api/geo", wrap((t, ts) => dataSource.geo(t, ts)));
+
+  // 全量聚合类接口（不受单次读取上限影响）
+  app.get("/api/total", wrap((t, ts) => dataSource.totalCount(t, ts)));
+  app.get("/api/languages", wrap((t, ts) => dataSource.languages(t, ts)));
+  app.get("/api/outlets", async (req, res) => {
+    try {
+      const topic = cleanTopic(req.query.topic);
+      const timespan = clean(req.query.timespan);
+      const limit = Math.min(Number(req.query.limit) || 12, 50);
+      res.json(await dataSource.outlets(topic, timespan, limit));
+    } catch (e: any) {
+      handleErr(e, res);
+    }
+  });
+  app.get("/api/search", async (req, res) => {
+    try {
+      const topic = cleanTopic(req.query.topic);
+      const timespan = clean(req.query.timespan);
+      const q = String(req.query.q ?? "").slice(0, 120);
+      const limit = Math.min(Number(req.query.limit) || 12, 60);
+      const offset = Math.max(Number(req.query.offset) || 0, 0);
+      res.json(await dataSource.search(topic, timespan, q, limit, offset));
+    } catch (e: any) {
+      handleErr(e, res);
+    }
+  });
 
   return httpServer;
 }
